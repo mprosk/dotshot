@@ -1,0 +1,20 @@
+# Camera and image processing
+picamera2>=0.3.12
+numpy>=1.24.0
+opencv-python>=4.8.0
+Pillow>=10.0.0
+
+# Printer communication
+pyserial>=3.5
+pyusb>=1.2.1
+
+# Configuration
+pyyaml>=6.0
+
+# GPIO and Hardware (Raspberry Pi)
+RPi.GPIO>=0.7.1; platform_machine=="armv7l" or platform_machine=="aarch64"
+gpiozero>=1.6.2; platform_machine=="armv7l" or platform_machine=="aarch64"
+
+# Development and testing
+pytest>=7.4.0
+matplotlib>=3.7.0  # For displaying intermediate results

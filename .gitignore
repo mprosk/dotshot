@@ -1,0 +1,80 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Project specific
+output/
+temp/
+*.log
+processed_*.png
+processed_*.jpg
+captured_*.jpg
+captured_*.png
+dotshot_*.jpg
+dotshot_*.png
+
+# Test images (except default ones)
+tests/test_images/*.jpg
+tests/test_images/*.jpeg
+tests/test_images/*.bmp
+tests/test_images/*.tiff
+tests/test_images/*.gif
+!tests/test_images/*.png
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Raspberry Pi specific
+*.img
+*.zip
+
+# Camera calibration files
+*.npz
+
+# Printer spool files
+*.prn
