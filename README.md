@@ -11,23 +11,12 @@
 
 DotShot is a Raspberry Pi–based photobooth that captures, processes, and prints photos on a dot‑matrix printer. It provides a modular image processing pipeline, GPIO‑driven operation, and a command‑line interface for capture, processing, and testing.
 
-## Features
-
-- Automated capture with GPIO button and LED status indicators
-- Live preview and countdown
-- Modular processing pipeline: resize, crop, tone/contrast adjustment, edge enhancement
-- Multiple dithering algorithms (Floyd–Steinberg, Atkinson, Sierra, Ordered, Threshold)
-- Printer integration with ESC/P commands and caption support
-- Mock hardware mode for development
-- Configurable via `config/settings.py`
-
 ## Hardware
 
 - Raspberry Pi 4 (recommended) or 3B+
 - Raspberry Pi Camera Module (v2 or HQ)
-- Dot matrix printer (Epson ESC/P compatible)
+- Epson ESC/P compatible dot matrix printer (I am using an OKI Microline 320 Turbo)
 - USB‑to‑Centronics parallel adapter
-- Momentary push button (GPIO) and LED indicator
 
 ## Printer
 
@@ -56,6 +45,9 @@ sudo lpadmin -p ml320_text -E -v file:/dev/usb/lp0 -P /usr/share/ppd/textonly.pp
 
 # Add graphics mode printer queue, also on the lp0 port
 sudo lpadmin -p ml320_gfx -E -v file:/dev/usb/lp0 -m drv:///sample.drv/epson9.ppd
+
+# add raw mode printer queue
+sudo lpadmin -p ml320_raw -E -v file:/dev/usb/lp0 -m raw
 
 lp -d ml320_text test/hello.txt
 lp -d ml320_gfx test/tux.png
@@ -178,6 +170,15 @@ sudo systemctl start dotshot.service
 pytest tests/
 python src/main.py test-pipeline --generate-images
 ```
+## Features
+
+- Automated capture with GPIO button and LED status indicators
+- Live preview and countdown
+- Modular processing pipeline: resize, crop, tone/contrast adjustment, edge enhancement
+- Multiple dithering algorithms (Floyd–Steinberg, Atkinson, Sierra, Ordered, Threshold)
+- Printer integration with ESC/P commands and caption support
+- Mock hardware mode for development
+- Configurable via `config/settings.py`
 
 ## Project structure
 
@@ -193,9 +194,3 @@ dotshot/
 │   └── utils/
 └── tests/
 ```
-
-## License
-
-MIT License. See `LICENSE`.
-
-
