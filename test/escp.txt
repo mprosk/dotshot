@@ -1,0 +1,36 @@
+EPSON ESC/P CONTROL CODES
+
+Emphasized:
+<ESC E>EThe quick brown fox jumps over the lazy dog.F<ESC F>
+
+Italic:
+<ESC 4>4The quick brown fox jumps over the lazy dog.5<ESC 5>
+
+Underline:
+<ESC - 1>-1The quick brown fox jumps over the lazy dog.-0<ESC - 0>
+
+Enhanced:
+<ESC G>GThe quick brown fox jumps over the lazy dog.H<ESC H>
+
+10 cpi (80 chars / line):
+<ESC P>PThe quick brown fox jumps over the lazy dog.
+
+12 cpi (96 chars / line):
+<ESC M>MThe quick brown fox jumps over the lazy dog.P<ESC P>
+
+15 cpi (120 chars / line):
+<ESC g>gThe quick brown fox jumps over the lazy dog.P<ESC P>
+
+Condensed (17 cpi, 136 chars / line):
+<SI>The quick brown fox jumps over the lazy dog.<DC2>
+
+Double Width:
+<ESC W 1>W1The quick brown fox jumps over the lazy dog.W0<ESC W 0>
+
+Double Height:
+
+<ESC w 1>w1The quick brown fox jumps over the lazy dog.w0<ESC w 0>
+
+Double Width Double Height:
+
+<ESC W 1><ESC w 1>w1W1The quick brown fox jumps over the lazy dog.w0W0<ESC w 0><ESC W 0>
