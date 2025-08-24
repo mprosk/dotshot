@@ -51,6 +51,8 @@ sudo lpadmin -p ml320_raw -E -v file:/dev/usb/lp0 -m raw
 
 lp -d ml320_text test/hello.txt
 lp -d ml320_gfx test/tux.png
+
+lpstat -t
 ```
 
 ## Installation
