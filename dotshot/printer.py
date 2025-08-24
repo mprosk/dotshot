@@ -92,7 +92,9 @@ class Printer:
         if not os.path.isfile(image_path):
             raise FileNotFoundError(f"Image not found: {image_path}")
 
-        return self._lp_submit(self.graphics_queue_name, [image_path])
+        return self._lp_submit(
+            self.graphics_queue_name, [image_path], ["-o", "Resolution=60x72dpi"]
+        )
 
     def print_text_file(self, file_path: str) -> int:
         """
@@ -114,7 +116,9 @@ class Printer:
 
         return self._lp_submit(self.text_queue_name, [file_path])
 
-    def _lp_submit(self, queue_name: str, file_paths: list[str]) -> int:
+    def _lp_submit(
+        self, queue_name: str, file_paths: list[str], options: list[str] = []
+    ) -> int:
         """
         Submit one or more files to a CUPS queue using `lp` and return the job id.
 
@@ -130,6 +134,7 @@ class Printer:
         """
 
         cmd: list[str] = ["lp", "-d", queue_name]
+        cmd += options
         cmd += file_paths
 
         result = subprocess.run(

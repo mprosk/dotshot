@@ -17,13 +17,13 @@ Notes:
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
 import os
+from typing import Optional, Tuple
 
 try:
+    import win32con  # type: ignore
     import win32print  # type: ignore
     import win32ui  # type: ignore
-    import win32con  # type: ignore
 except Exception as exc:  # pragma: no cover - Windows-only dependency
     raise SystemExit(
         "pywin32 is required on Windows. Install with: pip install pywin32"
@@ -77,7 +77,11 @@ class PrinterWindows:
         data_text: str = text
         if normalize_crlf:
             # Normalize newlines to CRLF for many printer interpreters
-            data_text = data_text.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n")
+            data_text = (
+                data_text.replace("\r\n", "\n")
+                .replace("\r", "\n")
+                .replace("\n", "\r\n")
+            )
         if append_form_feed:
             data_text += "\x0c"
         data: bytes = data_text.encode(encoding, errors="replace")
@@ -105,7 +109,7 @@ class PrinterWindows:
         image_path: str,
         *,
         title: str = "DotShot Image",
-        fit_mode: str = "fit",  # "fit" or "fill"
+        fit_mode: str = "fit",  # "fit" (contain) or "fill" (cover), both preserve aspect
         margin_px: int = 50,
     ) -> Optional[int]:
         """Print an image file using GDI. Maintains aspect ratio.
@@ -127,19 +131,38 @@ class PrinterWindows:
         hdc = win32ui.CreateDC()
         hdc.CreatePrinterDC(self.printer_name)
 
-        # Printable area in pixels
-        horz_res = hdc.GetDeviceCaps(win32con.HORZRES)
-        vert_res = hdc.GetDeviceCaps(win32con.VERTRES)
+        # Device capabilities
+        horz_res = int(hdc.GetDeviceCaps(win32con.HORZRES))  # pixels across
+        vert_res = int(hdc.GetDeviceCaps(win32con.VERTRES))  # pixels down
+        logpx = float(hdc.GetDeviceCaps(win32con.LOGPIXELSX))  # pixels per inch X
+        logpy = float(hdc.GetDeviceCaps(win32con.LOGPIXELSY))  # pixels per inch Y
 
-        # Compute destination rectangle while keeping aspect
-        max_w = max(1, int(horz_res) - 2 * margin_px)
-        max_h = max(1, int(vert_res) - 2 * margin_px)
-        dst_w, dst_h = _compute_fit(img.size, (max_w, max_h), fit_mode)
+        # Available destination area in pixels
+        max_w_px = max(1, horz_res - 2 * int(margin_px))
+        max_h_px = max(1, vert_res - 2 * int(margin_px))
 
-        left = (horz_res - dst_w) // 2
-        top = (vert_res - dst_h) // 2
-        right = left + dst_w
-        bottom = top + dst_h
+        # Compute scale in physical units to preserve aspect ratio even when LOGPIXELS differ
+        src_w_px, src_h_px = img.size
+        if src_w_px <= 0 or src_h_px <= 0:
+            src_w_px, src_h_px = 1, 1
+
+        # s defines physical inches per source pixel. Constrain by available pixels.
+        s_w = max_w_px / (src_w_px * logpx)
+        s_h = max_h_px / (src_h_px * logpy)
+        if fit_mode.lower() == "fill":
+            s = max(s_w, s_h)
+        else:
+            s = min(s_w, s_h)
+        if not (s > 0):
+            s = min(s_w, s_h) if (s_w > 0 and s_h > 0) else 1.0 / max(logpx, logpy)
+
+        dst_w_px = max(1, int(round(src_w_px * s * logpx)))
+        dst_h_px = max(1, int(round(src_h_px * s * logpy)))
+
+        left = (horz_res - dst_w_px) // 2
+        top = (vert_res - dst_h_px) // 2
+        right = left + dst_w_px
+        bottom = top + dst_h_px
 
         dib = ImageWin.Dib(img)
 
@@ -195,5 +218,3 @@ def _compute_fit(
 
 
 __all__ = ["PrinterWindows"]
-
-

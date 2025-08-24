@@ -12,9 +12,8 @@ Usage example:
 
 from __future__ import annotations
 
-from typing import Optional, Tuple, Union
-import argparse
 import logging
+from typing import Optional, Tuple, Union
 
 try:
     import cv2  # type: ignore
@@ -30,7 +29,6 @@ CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 960
 CAMERA_FPS = 30
 WARMUP_FRAMES = 6
-QUANT_LEVELS_DEFAULT = 8
 
 
 DeviceArg = Union[int, str]
@@ -70,7 +68,6 @@ class USBCamera:
         fourcc: Optional[str] = None,
         warmup_frames: int = WARMUP_FRAMES,
         logger: Optional[logging.Logger] = None,
-        levels: int = QUANT_LEVELS_DEFAULT,
     ) -> None:
         self._requested_device: DeviceArg = device
         self._requested_width: Optional[int] = width
@@ -78,8 +75,9 @@ class USBCamera:
         self._requested_fps: Optional[int] = fps
         self._requested_fourcc: Optional[str] = fourcc
         self._warmup_frames: int = max(0, int(warmup_frames))
-        self._logger: logging.Logger = logger if logger is not None else logging.getLogger(__name__)
-        self._levels: int = max(2, int(levels))
+        self._logger: logging.Logger = (
+            logger if logger is not None else logging.getLogger(__name__)
+        )
 
         self._capture: Optional[cv2.VideoCapture] = None
         self._index: Optional[int] = None
@@ -90,7 +88,9 @@ class USBCamera:
             return
 
         index = _device_to_index(self._requested_device)
-        self._logger.info("Opening video device %s (index %d)", self._requested_device, index)
+        self._logger.info(
+            "Opening video device %s (index %d)", self._requested_device, index
+        )
         capture = cv2.VideoCapture(index, cv2.CAP_V4L2)
         if not capture.isOpened():
             self._logger.debug("CAP_V4L2 failed, falling back to default backend")
@@ -115,14 +115,18 @@ class USBCamera:
         self._index = index
 
         if self._warmup_frames > 0:
-            self._logger.debug("Warming up on open: discarding %d frames", self._warmup_frames)
+            self._logger.debug(
+                "Warming up on open: discarding %d frames", self._warmup_frames
+            )
         for _ in range(self._warmup_frames):
             ok, _ = capture.read()
             if not ok:
                 break
         actual_w = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         actual_h = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        self._logger.info("Opened %s at %dx%d", self._requested_device, actual_w, actual_h)
+        self._logger.info(
+            "Opened %s at %dx%d", self._requested_device, actual_w, actual_h
+        )
 
     def close(self) -> None:
         """Release the device if open."""
@@ -179,7 +183,9 @@ class USBCamera:
         self._logger.info("Frame grayscale range: min=%d, max=%d", min_val, max_val)
 
         # Normalize to 0-255 range
-        frame_gray = cv2.normalize(frame_gray, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+        frame_gray = cv2.normalize(
+            frame_gray, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX
+        )
 
         # Ensure contiguous array
         if not frame_gray.flags["C_CONTIGUOUS"]:
