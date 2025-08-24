@@ -26,13 +26,11 @@ except Exception as exc:  # pragma: no cover - optional dependency
 import numpy as np
 
 # Camera config
-# CAMERA_WIDTH = 1280
-CAMERA_WIDTH = 160
-# CAMERA_HEIGHT = 960
-CAMERA_HEIGHT = 120
+CAMERA_WIDTH = 1280
+CAMERA_HEIGHT = 960
 CAMERA_FPS = 30
 WARMUP_FRAMES = 6
-QUANT_LEVELS_DEFAULT = 256
+QUANT_LEVELS_DEFAULT = 8
 
 
 DeviceArg = Union[int, str]
@@ -182,16 +180,6 @@ class USBCamera:
 
         # Normalize to 0-255 range
         frame_gray = cv2.normalize(frame_gray, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-
-        # Quantize to N evenly-spaced gray levels across 0..255, then shift up by 1 level (saturating)
-        levels = self._levels
-        if levels != 256:
-            f32 = frame_gray.astype(np.float32)
-            indices = np.rint(f32 * (levels - 1) / 255.0)
-            # Shift indices up by one level and saturate to [0, levels-1]
-            indices = np.clip(indices + 1.0, 0.0, float(levels - 1))
-            frame_gray = np.rint(indices * (255.0 / (levels - 1))).astype(np.uint8)
-            self._logger.debug("Quantized to %d gray levels and shifted +1 level", levels)
 
         # Ensure contiguous array
         if not frame_gray.flags["C_CONTIGUOUS"]:
