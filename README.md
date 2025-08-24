@@ -22,7 +22,7 @@ DotShot is a Raspberry Pi–based photobooth that captures, processes, and print
 
 ```bash
 # Install CUPS and useful drivers
-sudo apt update && sudo apt install -y cups cups-bsd foomatic-db-compressed-ppds
+sudo apt update && sudo apt install -y cups
 
 # Let your user administer printers (log out/in after this once)
 sudo usermod -aG lpadmin "$USER"
@@ -57,9 +57,11 @@ lpstat -t
 
 ## Installation
 
+Use Raspberry Pi OS Lite
+
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3-pip python3-venv libcamera-apps python3-libcamera python3-opencv git
+sudo apt install -y git python3-pip python3-venv python3-picamera2
 
 git clone <repo-url>
 cd dotshot

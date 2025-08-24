@@ -18,7 +18,7 @@ import tempfile
 from typing import Optional
 
 
-class LinePrinter:
+class Printer:
     """
     A simple interface for printing text and images via CUPS.
 
@@ -72,7 +72,7 @@ class LinePrinter:
                     # Best effort cleanup; ignore failures.
                     pass
 
-    def print_img(self, image_path: str) -> int:
+    def print_image_file(self, image_path: str) -> int:
         """
         Print an image file via the graphics queue and return the CUPS job id.
 
@@ -94,7 +94,7 @@ class LinePrinter:
 
         return self._lp_submit(self.graphics_queue_name, [image_path])
 
-    def print_file(self, file_path: str) -> int:
+    def print_text_file(self, file_path: str) -> int:
         """
         Print an existing text file via the text queue.
 
@@ -194,5 +194,5 @@ class LinePrinter:
 
 
 __all__ = [
-    "LinePrinter",
+    "Printer",
 ]

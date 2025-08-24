@@ -1,4 +1,5 @@
-# Note: Picamera2 is installed via apt on Raspberry Pi OS:
+# Note: Picamera2 is installed via apt on Raspberry Pi OS
+# (This will not work on normal Ubuntu, you must use RaspiOS)
 #   sudo apt install -y python3-picamera2
 
 # OpenCV for display (optional; alternatively install via apt: python3-opencv)
