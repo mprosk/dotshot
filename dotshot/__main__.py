@@ -27,45 +27,6 @@ DOWN_KEYS = {84, 2621440}  # Down arrow (Linux/Windows)
 class ImagePipeline:
     """Encapsulates capture, resize, quantization, and display state."""
 
-    @staticmethod
-    def _resize_fit(image: np.ndarray, max_h: int, max_w: int) -> np.ndarray:
-        """Resize a grayscale image to fit within (max_h, max_w) maintaining aspect."""
-        h, w = int(image.shape[0]), int(image.shape[1])
-        if max_h <= 0 or max_w <= 0:
-            return image
-        scale_h = float(max_h) / float(h)
-        scale_w = float(max_w) / float(w)
-        scale = min(scale_h, scale_w)
-        if scale <= 0:
-            return image
-        new_h = max(1, int(round(h * scale)))
-        new_w = max(1, int(round(w * scale)))
-        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
-        return cv2.resize(image, (new_w, new_h), interpolation=interp)
-
-    def _quantize_gray(self, image: np.ndarray) -> np.ndarray:
-        """Quantize normalized grayscale image to evenly spaced levels across 0..255."""
-        levels = self.levels
-        if levels >= 256:
-            return image if image.flags["C_CONTIGUOUS"] else np.ascontiguousarray(image)
-        f32 = image.astype(np.float32)
-        indices = np.rint(f32 * (levels - 1) / 255.0)
-        quantized = np.rint(indices * (255.0 / (levels - 1))).astype(np.uint8)
-        if not quantized.flags["C_CONTIGUOUS"]:
-            quantized = np.ascontiguousarray(quantized)
-        return quantized
-
-    def _shift_quant_levels(self, image: np.ndarray, delta_levels: int) -> np.ndarray:
-        """Shift image up/down by integer quantization steps (saturating to 0..255)."""
-        levels = self.levels
-        step = 255.0 / float(levels - 1)
-        indices = np.rint(image.astype(np.float32) / step) + float(delta_levels)
-        indices = np.clip(indices, 0.0, float(levels - 1))
-        shifted = np.rint(indices * step).astype(np.uint8)
-        if not shifted.flags["C_CONTIGUOUS"]:
-            shifted = np.ascontiguousarray(shifted)
-        return shifted
-
     def __init__(
         self,
         *,
@@ -75,6 +36,15 @@ class ImagePipeline:
         initial_index: int,
         levels: int,
     ) -> None:
+        """Initialize the pipeline and preallocate image buffers.
+
+        Parameters:
+            cam: Camera used to capture frames.
+            printer: Printer used to send image files.
+            resolutions: List of (width, height) resolution options.
+            initial_index: Starting index into `resolutions`.
+            levels: Number of gray quantization levels (>= 2).
+        """
         self.cam: USBCamera = cam
         self.printer: Printer = printer
         self.resolutions: list[tuple[int, int]] = resolutions
@@ -87,33 +57,28 @@ class ImagePipeline:
         self.quant: np.ndarray = np.zeros((1, 1), dtype=np.uint8)
         self.frame: np.ndarray = np.zeros((1, 1), dtype=np.uint8)
 
-    def _current_target(self) -> tuple[int, int]:
-        w, h = self.resolutions[self.res_index]
-        return h, w
-
-    def _rebuild_from_raw(self) -> None:
-        tgt_h, tgt_w = self._current_target()
-        self.orig = self._resize_fit(self.raw, tgt_h, tgt_w)
-        self.quant = self._quantize_gray(self.orig)
-        self.frame = self._shift_quant_levels(self.quant, self.level_offset)
-
     def capture(self) -> None:
+        """Capture a fresh frame from the camera and rebuild the processed state."""
         self.raw = self.cam.capture_frame()
         self.level_offset = 0
         self._rebuild_from_raw()
 
     def recapture(self) -> None:
+        """Convenience wrapper to capture a new frame."""
         self.capture()
 
     def cycle_resolution(self) -> None:
+        """Cycle to the next target resolution and rebuild derived images."""
         self.res_index = (self.res_index + 1) % len(self.resolutions)
         self._rebuild_from_raw()
 
     def adjust_offset(self, delta_levels: int) -> None:
+        """Shift brightness by integer quantization steps and update the frame."""
         self.level_offset += int(delta_levels)
         self.frame = self._shift_quant_levels(self.quant, self.level_offset)
 
     def get_display(self) -> np.ndarray:
+        """Return a BGR display image with HUD overlay (not used for printing)."""
         # Build a display-only copy with HUD overlay; do not affect printable content
         if self.frame.ndim == 2:
             display = cv2.cvtColor(self.frame, cv2.COLOR_GRAY2BGR)
@@ -151,9 +116,11 @@ class ImagePipeline:
         return display
 
     def get_print_frame(self) -> np.ndarray:
+        """Return the current printable grayscale frame."""
         return self.frame
 
     def print_current(self) -> None:
+        """Write the current frame to a temp PNG and send it to the printer."""
         # Write current printable frame to a temp file and submit to printer
         with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
             tmp_path = tmp_file.name
@@ -169,6 +136,58 @@ class ImagePipeline:
                     os.remove(tmp_path)
                 except OSError:
                     pass
+
+
+    def _current_target(self) -> tuple[int, int]:
+        """Return current target (height, width) derived from the resolution index."""
+        w, h = self.resolutions[self.res_index]
+        return h, w
+
+    def _rebuild_from_raw(self) -> None:
+        """Recompute `orig`, `quant`, and `frame` arrays from the latest `raw`."""
+        tgt_h, tgt_w = self._current_target()
+        self.orig = self._resize_fit(self.raw, tgt_h, tgt_w)
+        self.quant = self._quantize_gray(self.orig)
+        self.frame = self._shift_quant_levels(self.quant, self.level_offset)
+
+    @staticmethod
+    def _resize_fit(image: np.ndarray, max_h: int, max_w: int) -> np.ndarray:
+        """Resize a grayscale image to fit within (max_h, max_w) keeping aspect ratio."""
+        h, w = int(image.shape[0]), int(image.shape[1])
+        if max_h <= 0 or max_w <= 0:
+            return image
+        scale_h = float(max_h) / float(h)
+        scale_w = float(max_w) / float(w)
+        scale = min(scale_h, scale_w)
+        if scale <= 0:
+            return image
+        new_h = max(1, int(round(h * scale)))
+        new_w = max(1, int(round(w * scale)))
+        interp = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+        return cv2.resize(image, (new_w, new_h), interpolation=interp)
+
+    def _quantize_gray(self, image: np.ndarray) -> np.ndarray:
+        """Quantize a grayscale image to `self.levels` evenly spaced values in [0, 255]."""
+        levels = self.levels
+        if levels >= 256:
+            return image if image.flags["C_CONTIGUOUS"] else np.ascontiguousarray(image)
+        f32 = image.astype(np.float32)
+        indices = np.rint(f32 * (levels - 1) / 255.0)
+        quantized = np.rint(indices * (255.0 / (levels - 1))).astype(np.uint8)
+        if not quantized.flags["C_CONTIGUOUS"]:
+            quantized = np.ascontiguousarray(quantized)
+        return quantized
+
+    def _shift_quant_levels(self, image: np.ndarray, delta_levels: int) -> np.ndarray:
+        """Shift brightness by `delta_levels` quant steps; saturate to [0, 255]."""
+        levels = self.levels
+        step = 255.0 / float(levels - 1)
+        indices = np.rint(image.astype(np.float32) / step) + float(delta_levels)
+        indices = np.clip(indices, 0.0, float(levels - 1))
+        shifted = np.rint(indices * step).astype(np.uint8)
+        if not shifted.flags["C_CONTIGUOUS"]:
+            shifted = np.ascontiguousarray(shifted)
+        return shifted
 
 
 def main() -> None:
