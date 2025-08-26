@@ -1,3 +1,6 @@
+# Project specific files
+dotshot_*.png
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -40,25 +43,6 @@ venv.bak/
 *.swp
 *.swo
 *~
-
-# Project specific
-output/
-temp/
-*.log
-processed_*.png
-processed_*.jpg
-captured_*.jpg
-captured_*.png
-dotshot_*.jpg
-dotshot_*.png
-
-# Test images (except default ones)
-tests/test_images/*.jpg
-tests/test_images/*.jpeg
-tests/test_images/*.bmp
-tests/test_images/*.tiff
-tests/test_images/*.gif
-!tests/test_images/*.png
 
 # OS files
 .DS_Store
