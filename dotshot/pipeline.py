@@ -1,13 +1,13 @@
 import logging
 import os
 import tempfile
+from typing import Optional
 
 import cv2
 import numpy as np
 
 from dotshot.camera import USBCamera
 from dotshot.printer import Printer
-
 
 # Display/processing config
 RESOLUTIONS = [
@@ -27,7 +27,7 @@ class ImagePipeline:
     def __init__(
         self,
         *,
-        cam: USBCamera,
+        cam: Optional[USBCamera],
         printer: Printer,
     ) -> None:
         """Initialize the pipeline and preallocate image buffers.
@@ -40,7 +40,7 @@ class ImagePipeline:
             levels: Number of gray quantization levels (>= 2).
         """
         # Devices
-        self.cam: USBCamera = cam
+        self.cam: Optional[USBCamera] = cam
         self.printer: Printer = printer
 
         # State
@@ -56,12 +56,24 @@ class ImagePipeline:
 
     def capture(self) -> None:
         """Capture a fresh frame from the camera and rebuild the processed state."""
+        if self.cam is None:
+            return
         self.raw = self.cam.capture_frame()
         self._rebuild_from_raw()
 
     def recapture(self) -> None:
         """Convenience wrapper to capture a new frame."""
         self.capture()
+
+    def load_file(self, path: str) -> None:
+        """Load a grayscale image from file as the raw frame and rebuild state."""
+        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise RuntimeError(f"Failed to read image from {path}")
+        if not img.flags["C_CONTIGUOUS"]:
+            img = np.ascontiguousarray(img)
+        self.raw = img
+        self._rebuild_from_raw()
 
     def cycle_resolution(self) -> None:
         """Cycle to the next target resolution and rebuild derived images."""
@@ -73,43 +85,36 @@ class ImagePipeline:
         self.level_offset += int(delta_levels)
         self.frame = self._shift_quant_levels(self.quant, self.level_offset)
 
+    def set_offset(self, new_offset: int) -> None:
+        """Set absolute brightness offset in quantization steps and update the frame."""
+        self.level_offset = int(new_offset)
+        self.frame = self._shift_quant_levels(self.quant, self.level_offset)
+
+    def set_resolution_index(self, index: int) -> None:
+        """Set target resolution by index and rebuild derived images."""
+        if not RESOLUTIONS:
+            return
+        clamped = max(0, min(int(index), len(RESOLUTIONS) - 1))
+        if clamped == self.res_index:
+            return
+        self.res_index = clamped
+        self._rebuild_from_raw()
+
+    def set_quant_index(self, index: int) -> None:
+        """Set quantization level index and rebuild derived images."""
+        if not QUANT_LEVELS:
+            return
+        clamped = max(0, min(int(index), len(QUANT_LEVELS) - 1))
+        if clamped == self.quant_index:
+            return
+        self.quant_index = clamped
+        self._rebuild_from_raw()
+
     def get_display(self) -> np.ndarray:
-        """Return a BGR display image with HUD overlay (not used for printing)."""
-        # Build a display-only copy with HUD overlay; do not affect printable content
+        """Return a BGR display image without any overlay (clean preview)."""
         if self.frame.ndim == 2:
-            display = cv2.cvtColor(self.frame, cv2.COLOR_GRAY2BGR)
-        else:
-            display = self.frame.copy()
-
-        # Scaled HUD overlay (consistent apparent size across resolutions)
-        ref_w, ref_h = 640.0, 480.0
-        cur_h, cur_w = float(self.orig.shape[0]), float(self.orig.shape[1])
-        scale_factor = max(0.25, min(4.0, min(cur_w / ref_w, cur_h / ref_h)))
-        font_scale = 0.6 * scale_factor
-        thickness = max(1, int(round(2 * scale_factor)))
-        margin = int(round(10 * scale_factor))
-
-        lines = [
-            f"Levels: {self.levels}  Offset: {self.level_offset:+d}",
-            f"Res: {self.orig.shape[1]}x{self.orig.shape[0]}",
-        ]
-        y = margin + int(round(14 * scale_factor))
-        for line in lines:
-            (text_w, text_h), baseline = cv2.getTextSize(
-                line, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness
-            )
-            cv2.putText(
-                display,
-                line,
-                (margin, y),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                font_scale,
-                (0, 255, 0),
-                thickness,
-                cv2.LINE_AA,
-            )
-            y += text_h + baseline + int(round(6 * scale_factor))
-        return display
+            return cv2.cvtColor(self.frame, cv2.COLOR_GRAY2BGR)
+        return self.frame.copy()
 
     def get_print_frame(self) -> np.ndarray:
         """Return the current printable grayscale frame."""
@@ -167,7 +172,7 @@ class ImagePipeline:
 
     def _quantize_gray(self, image: np.ndarray) -> np.ndarray:
         """Quantize a grayscale image to `self.levels` evenly spaced values in [0, 255]."""
-        levels = self.levels
+        levels = QUANT_LEVELS[self.quant_index] if QUANT_LEVELS else 256
         if levels >= 256:
             return image if image.flags["C_CONTIGUOUS"] else np.ascontiguousarray(image)
         f32 = image.astype(np.float32)
@@ -179,8 +184,8 @@ class ImagePipeline:
 
     def _shift_quant_levels(self, image: np.ndarray, delta_levels: int) -> np.ndarray:
         """Shift brightness by `delta_levels` quant steps; saturate to [0, 255]."""
-        levels = self.levels
-        step = 255.0 / float(levels - 1)
+        levels = QUANT_LEVELS[self.quant_index] if QUANT_LEVELS else 256
+        step = 255.0 / float(max(1, levels - 1))
         indices = np.rint(image.astype(np.float32) / step) + float(delta_levels)
         indices = np.clip(indices, 0.0, float(levels - 1))
         shifted = np.rint(indices * step).astype(np.uint8)
