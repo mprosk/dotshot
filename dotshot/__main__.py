@@ -1,4 +1,6 @@
 import logging
+import os
+from datetime import datetime
 
 import cv2
 
@@ -55,6 +57,21 @@ def main() -> None:
 
                 if (key & 0xFF) == ord("p"):
                     pipeline.print_current()
+                    continue
+
+                if (key & 0xFF) == ord("s"):
+                    # Save current printable and raw frames to repo-root images folder
+                    frame = pipeline.get_print_frame()
+                    raw = pipeline.get_raw_frame()
+                    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                    images_dir = os.path.join(repo_root, "images")
+                    os.makedirs(images_dir, exist_ok=True)
+                    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    out_print = os.path.join(images_dir, f"dotshot_{ts}_print.png")
+                    out_raw = os.path.join(images_dir, f"dotshot_{ts}_raw.png")
+                    cv2.imwrite(out_print, frame)
+                    cv2.imwrite(out_raw, raw)
+                    logging.info(f"Saved images to {out_print} and {out_raw}")
                     continue
     finally:
         try:

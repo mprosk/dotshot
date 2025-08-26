@@ -115,6 +115,10 @@ class ImagePipeline:
         """Return the current printable grayscale frame."""
         return self.frame
 
+    def get_raw_frame(self) -> np.ndarray:
+        """Return the latest captured raw grayscale frame from the camera."""
+        return self.raw
+
     def print_current(self) -> None:
         """Write the current frame to a temp PNG and send it to the printer."""
         # Write current printable frame to a temp file and submit to printer
