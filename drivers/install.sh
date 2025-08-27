@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Install the printer drivers
-sudo cp ./textonly.pdd /usr/share/ppd/
+sudo cp ./textonly.ppd /usr/share/ppd/
 sudo cp ./textonly /usr/lib/cups/filter/
 sudo chmod +x /usr/lib/cups/filter/textonly
 
