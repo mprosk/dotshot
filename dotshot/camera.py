@@ -3,7 +3,7 @@
 Typed USB webcam capture utility using OpenCV (V4L2 on Linux).
 
 Usage example:
-    from src.camera import USBCamera
+    from dotshot.camera import USBCamera
 
     with USBCamera(device="/dev/video0", width=1280, height=720, fps=30) as cam:
         frame = cam.capture_frame()
@@ -54,8 +54,7 @@ def _device_to_index(device: DeviceArg) -> int:
 class USBCamera:
     """Minimal, typed USB camera wrapper for single-frame capture.
 
-    Frames are returned in RGB order (uint8), which is commonly preferred for
-    downstream processing libraries.
+    Frames are returned as grayscale (uint8) arrays of shape (H, W).
     """
 
     def __init__(
@@ -173,6 +172,7 @@ class USBCamera:
         if not ok or frame_bgr is None:
             self._logger.error("Failed to read frame from camera")
             raise RuntimeError("Failed to read frame from camera.")
+        self._logger.debug("Captured frame with shape %s", tuple(frame_bgr.shape))
 
         # Convert to grayscale
         frame_gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
@@ -190,7 +190,6 @@ class USBCamera:
         # Ensure contiguous array
         if not frame_gray.flags["C_CONTIGUOUS"]:
             frame_gray = np.ascontiguousarray(frame_gray)
-        self._logger.debug("Captured frame with shape %s", tuple(frame_gray.shape))
         return frame_gray
 
     def __enter__(self) -> "USBCamera":

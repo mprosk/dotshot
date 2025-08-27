@@ -58,7 +58,7 @@ def main() -> None:
 
             # Update window title with current status (Qt builds only; safe to ignore if unsupported)
             mode = "File" if use_file else "Camera"
-            levels_val = QUANT_LEVELS[pipeline.quant_index] if QUANT_LEVELS else 256
+            levels_val = pipeline.current_levels()
             res_txt = f"{pipeline.orig.shape[1]}x{pipeline.orig.shape[0]}"
             title = (
                 f"DotShot - Mode: {mode} | Res: {res_txt} | Levels: {levels_val} | "
@@ -78,7 +78,7 @@ def main() -> None:
                 break
 
             if (key & 0xFF) == ord("c") and not use_file:
-                pipeline.recapture()
+                pipeline.capture()
                 continue
 
             if (key & 0xFF) == ord("r"):
@@ -93,14 +93,12 @@ def main() -> None:
                 pipeline.adjust_offset(-1)
                 continue
 
-            if key in LEFT_KEYS and len(QUANT_LEVELS) > 0:
-                new_idx = (pipeline.quant_index - 1) % len(QUANT_LEVELS)
-                pipeline.set_quant_index(new_idx)
+            if key in LEFT_KEYS:
+                pipeline.adjust_quant(-1)
                 continue
 
-            if key in RIGHT_KEYS and len(QUANT_LEVELS) > 0:
-                new_idx = (pipeline.quant_index + 1) % len(QUANT_LEVELS)
-                pipeline.set_quant_index(new_idx)
+            if key in RIGHT_KEYS:
+                pipeline.adjust_quant(+1)
                 continue
 
             if (key & 0xFF) == ord("p"):

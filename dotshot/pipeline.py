@@ -33,11 +33,8 @@ class ImagePipeline:
         """Initialize the pipeline and preallocate image buffers.
 
         Parameters:
-            cam: Camera used to capture frames.
+            cam: Optional camera for live capture; set to None for file mode.
             printer: Printer used to send image files.
-            resolutions: List of (width, height) resolution options.
-            initial_index: Starting index into `resolutions`.
-            levels: Number of gray quantization levels (>= 2).
         """
         # Devices
         self.cam: Optional[USBCamera] = cam
@@ -57,13 +54,10 @@ class ImagePipeline:
     def capture(self) -> None:
         """Capture a fresh frame from the camera and rebuild the processed state."""
         if self.cam is None:
+            logging.debug("capture() called without a camera; ignoring")
             return
         self.raw = self.cam.capture_frame()
         self._rebuild_from_raw()
-
-    def recapture(self) -> None:
-        """Convenience wrapper to capture a new frame."""
-        self.capture()
 
     def load_file(self, path: str) -> None:
         """Load a grayscale image from file as the raw frame and rebuild state."""
@@ -73,21 +67,29 @@ class ImagePipeline:
         if not img.flags["C_CONTIGUOUS"]:
             img = np.ascontiguousarray(img)
         self.raw = img
+        logging.info("Loaded file %s with shape %s", path, tuple(img.shape))
         self._rebuild_from_raw()
 
     def cycle_resolution(self) -> None:
         """Cycle to the next target resolution and rebuild derived images."""
+        prev = self.res_index
         self.res_index = (self.res_index + 1) % len(RESOLUTIONS)
+        logging.debug("Resolution index changed: %d -> %d", prev, self.res_index)
         self._rebuild_from_raw()
 
     def adjust_offset(self, delta_levels: int) -> None:
         """Shift brightness by integer quantization steps and update the frame."""
+        prev = self.level_offset
         self.level_offset += int(delta_levels)
+        logging.debug("Offset adjusted: %d -> %d (delta %+d)", prev, self.level_offset, delta_levels)
         self.frame = self._shift_quant_levels(self.quant, self.level_offset)
 
     def set_offset(self, new_offset: int) -> None:
         """Set absolute brightness offset in quantization steps and update the frame."""
+        prev = self.level_offset
         self.level_offset = int(new_offset)
+        if self.level_offset != prev:
+            logging.debug("Offset set: %d -> %d", prev, self.level_offset)
         self.frame = self._shift_quant_levels(self.quant, self.level_offset)
 
     def set_resolution_index(self, index: int) -> None:
@@ -97,7 +99,9 @@ class ImagePipeline:
         clamped = max(0, min(int(index), len(RESOLUTIONS) - 1))
         if clamped == self.res_index:
             return
+        prev = self.res_index
         self.res_index = clamped
+        logging.debug("Resolution index set: %d -> %d", prev, self.res_index)
         self._rebuild_from_raw()
 
     def set_quant_index(self, index: int) -> None:
@@ -107,14 +111,35 @@ class ImagePipeline:
         clamped = max(0, min(int(index), len(QUANT_LEVELS) - 1))
         if clamped == self.quant_index:
             return
+        prev = self.quant_index
         self.quant_index = clamped
+        logging.debug("Quantization index set: %d -> %d (levels %d)", prev, self.quant_index, QUANT_LEVELS[self.quant_index])
         self._rebuild_from_raw()
 
+    def adjust_quant(self, delta: int) -> None:
+        """Adjust quantization level index by delta (wraps across available levels)."""
+        if not QUANT_LEVELS:
+            return
+        prev = self.quant_index
+        self.quant_index = (self.quant_index + int(delta)) % len(QUANT_LEVELS)
+        if self.quant_index != prev:
+            logging.debug(
+                "Quantization index adjusted: %d -> %d (levels %d)",
+                prev,
+                self.quant_index,
+                QUANT_LEVELS[self.quant_index],
+            )
+            self._rebuild_from_raw()
+
+    def current_levels(self) -> int:
+        """Return the current number of quantization levels."""
+        return int(QUANT_LEVELS[self.quant_index]) if QUANT_LEVELS else 256
+
     def get_display(self) -> np.ndarray:
-        """Return a BGR display image without any overlay (clean preview)."""
+        """Return a grayscale display image without any overlay (clean preview)."""
         if self.frame.ndim == 2:
-            return cv2.cvtColor(self.frame, cv2.COLOR_GRAY2BGR)
-        return self.frame.copy()
+            return self.frame
+        return cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
 
     def get_print_frame(self) -> np.ndarray:
         """Return the current printable grayscale frame."""
