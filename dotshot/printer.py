@@ -11,12 +11,12 @@ configured.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import subprocess
 import tempfile
 from typing import Optional
-import logging
 
 
 class Printer:
@@ -65,7 +65,9 @@ class Printer:
         try:
             tmp_path = self._write_temp_text_file(text)
             job_id = self._lp_submit(self.text_queue_name, [tmp_path])
-            logging.info("Submitted text print job %d to queue %s", job_id, self.text_queue_name)
+            logging.info(
+                "Submitted text print job %d to queue %s", job_id, self.text_queue_name
+            )
             return job_id
         finally:
             if tmp_path and os.path.exists(tmp_path):
@@ -98,7 +100,9 @@ class Printer:
         job_id = self._lp_submit(
             self.graphics_queue_name, [image_path], ["-o", "Resolution=60x72dpi"]
         )
-        logging.info("Submitted image print job %d to queue %s", job_id, self.graphics_queue_name)
+        logging.info(
+            "Submitted image print job %d to queue %s", job_id, self.graphics_queue_name
+        )
         return job_id
 
     def print_text_file(self, file_path: str) -> int:
@@ -120,7 +124,9 @@ class Printer:
             raise FileNotFoundError(f"File not found: {file_path}")
 
         job_id = self._lp_submit(self.text_queue_name, [file_path])
-        logging.info("Submitted text-file print job %d to queue %s", job_id, self.text_queue_name)
+        logging.info(
+            "Submitted text-file print job %d to queue %s", job_id, self.text_queue_name
+        )
         return job_id
 
     def _lp_submit(

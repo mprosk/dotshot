@@ -6,7 +6,7 @@ from datetime import datetime
 import cv2
 
 from dotshot.camera import USBCamera
-from dotshot.pipeline import QUANT_LEVELS, ImagePipeline
+from dotshot.pipeline import ImagePipeline
 from dotshot.printer import Printer
 
 UP_KEYS = {82, 2490368, 0}  # Up arrow (Linux/Windows/macOS)
@@ -47,8 +47,8 @@ def main() -> None:
             pipeline.load_file(args.file)
         else:
             assert cam is not None
-            with cam:
-                pipeline.capture()
+            cam.open()
+            pipeline.capture()
 
         fullscreen = False
         while True:
@@ -137,6 +137,12 @@ def main() -> None:
             cv2.destroyAllWindows()
         except Exception:
             pass
+        finally:
+            if not use_file and cam is not None:
+                try:
+                    cam.close()
+                except Exception as e:
+                    logging.error("Error closing camera: %s", e)
 
 
 if __name__ == "__main__":

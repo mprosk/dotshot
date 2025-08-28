@@ -205,10 +205,3 @@ class USBCamera:
         if not frame_gray.flags["C_CONTIGUOUS"]:
             frame_gray = np.ascontiguousarray(frame_gray)
         return frame_gray
-
-    def __enter__(self) -> "USBCamera":
-        self.open()
-        return self
-
-    def __exit__(self, exc_type, exc, tb) -> None:  # type: ignore[no-untyped-def]
-        self.close()

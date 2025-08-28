@@ -81,7 +81,12 @@ class ImagePipeline:
         """Shift brightness by integer quantization steps and update the frame."""
         prev = self.level_offset
         self.level_offset += int(delta_levels)
-        logging.debug("Offset adjusted: %d -> %d (delta %+d)", prev, self.level_offset, delta_levels)
+        logging.debug(
+            "Offset adjusted: %d -> %d (delta %+d)",
+            prev,
+            self.level_offset,
+            delta_levels,
+        )
         self.frame = self._shift_quant_levels(self.quant, self.level_offset)
 
     def set_offset(self, new_offset: int) -> None:
@@ -113,7 +118,12 @@ class ImagePipeline:
             return
         prev = self.quant_index
         self.quant_index = clamped
-        logging.debug("Quantization index set: %d -> %d (levels %d)", prev, self.quant_index, QUANT_LEVELS[self.quant_index])
+        logging.debug(
+            "Quantization index set: %d -> %d (levels %d)",
+            prev,
+            self.quant_index,
+            QUANT_LEVELS[self.quant_index],
+        )
         self._rebuild_from_raw()
 
     def adjust_quant(self, delta: int) -> None:
