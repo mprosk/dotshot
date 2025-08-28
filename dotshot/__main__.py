@@ -41,8 +41,7 @@ def main() -> None:
         printer=printer,
     )
 
-    cv2.namedWindow("DotShot", cv2.WINDOW_FULLSCREEN)
-    # cv2.resizeWindow("DotShot", 1280, 960)
+    cv2.namedWindow("DotShot", cv2.WINDOW_NORMAL)
     try:
         if use_file:
             pipeline.load_file(args.file)
@@ -54,7 +53,7 @@ def main() -> None:
         while True:
             display = pipeline.get_display()
             cv2.imshow("DotShot", display)
-            cv2.resizeWindow("DotShot", 1280, 960)
+            cv2.setWindowProperty("DotShot", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
 
             # Update window title with current status (Qt builds only; safe to ignore if unsupported)
             mode = "File" if use_file else "Camera"
