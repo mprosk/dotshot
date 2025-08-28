@@ -41,7 +41,7 @@ def main() -> None:
         printer=printer,
     )
 
-    cv2.namedWindow("DotShot", cv2.WINDOW_NORMAL)
+    cv2.namedWindow("DotShot", cv2.WINDOW_FULLSCREEN)
     # cv2.resizeWindow("DotShot", 1280, 960)
     try:
         if use_file:
@@ -69,7 +69,7 @@ def main() -> None:
             except Exception:
                 pass
 
-            key_full = int(cv2.waitKey(30))
+            key_full = int(cv2.waitKey())
             if key_full != -1:
                 logging.debug(f"Key: {key_full}")
             key = key_full & 0xFFFFFFFF
