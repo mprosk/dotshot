@@ -29,11 +29,18 @@ def main() -> None:
         default=None,
         help="Run without camera: load this image file",
     )
+    parser.add_argument(
+        "--camera",
+        dest="camera",
+        type=str,
+        default=None,
+        help="Camera device index or path (e.g., 0 or /dev/video0)",
+    )
     args = parser.parse_args()
 
     use_file = args.file is not None
 
-    cam = None if use_file else USBCamera()
+    cam = None if use_file else USBCamera(device=(args.camera if args.camera is not None else 0))
     printer = Printer()
 
     pipeline = ImagePipeline(
