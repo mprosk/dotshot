@@ -41,9 +41,9 @@ class ImagePipeline:
         self.printer: Printer = printer
 
         # State
-        self.res_index: int = 0
+        self.res_index: int = len(RESOLUTIONS) - 1
         self.level_offset: int = 0
-        self.quant_index: int = 0
+        self.quant_index: int = len(QUANT_LEVELS) - 1
 
         # Image buffers
         self.raw: np.ndarray = np.zeros((1, 1), dtype=np.uint8)

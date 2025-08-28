@@ -50,10 +50,11 @@ def main() -> None:
             with cam:
                 pipeline.capture()
 
+        fullscreen = False
         while True:
             display = pipeline.get_display()
             cv2.imshow("DotShot", display)
-            cv2.setWindowProperty("DotShot", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            # Window presentation managed via 'f' toggle
 
             # Update window title with current status (Qt builds only; safe to ignore if unsupported)
             mode = "File" if use_file else "Camera"
@@ -82,6 +83,19 @@ def main() -> None:
 
             if (key & 0xFF) == ord("r"):
                 pipeline.cycle_resolution()
+                continue
+
+            if (key & 0xFF) == ord("f"):
+                fullscreen = not fullscreen
+                logging.debug("Fullscreen %s", "ON" if fullscreen else "OFF")
+                try:
+                    cv2.setWindowProperty(
+                        "DotShot",
+                        cv2.WND_PROP_FULLSCREEN,
+                        cv2.WINDOW_FULLSCREEN if fullscreen else cv2.WINDOW_NORMAL,
+                    )
+                except Exception as e:
+                    logging.error("Failed to set fullscreen mode: %s", e)
                 continue
 
             if key in UP_KEYS:
