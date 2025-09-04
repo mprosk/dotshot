@@ -2,37 +2,43 @@ import argparse
 import logging
 import os
 from datetime import datetime
+import time
 
 import cv2
 import numpy as np
 
-from dotshotlive.livecamera import LiveCamera
-from dotshotlive.printer import Printer
+from dotshot.livecamera import LiveCamera
+from dotshot.printer import Printer
 
 
-def _load_and_process_file(path: str) -> np.ndarray:
-    """Load image file as grayscale, normalize, and crop 16:9 to 4:3 if needed."""
-    img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)
-    if img is None:
-        raise RuntimeError(f"Failed to read image from {path}")
-    img = cv2.normalize(img, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-    h, w = int(img.shape[0]), int(img.shape[1])
-    if w * 9 == h * 16:
-        if w * 3 > h * 4:
-            target_w = max(1, (h * 4) // 3)
-            x0 = (w - target_w) // 2
-            x1 = x0 + target_w
-            y0, y1 = 0, h
-        else:
-            target_h = max(1, (w * 3) // 4)
-            y0 = (h - target_h) // 2
-            y1 = y0 + target_h
-            x0, x1 = 0, w
-        img = img[y0:y1, x0:x1]
-    if not img.flags["C_CONTIGUOUS"]:
-        img = np.ascontiguousarray(img)
-    return img
+class FPSCounter:
+    """Lightweight FPS calculator with periodic updates."""
 
+    def __init__(self, *, enabled: bool, update_period_s: float = 1.0) -> None:
+        self._enabled: bool = enabled
+        self._update_period_s: float = update_period_s
+        self._last_time: float = time.perf_counter()
+        self._frame_count: int = 0
+        self._fps: float = 0.0
+
+    def update(self) -> None:
+        """Record a frame and update FPS if the update period elapsed."""
+        if not self._enabled:
+            return
+        self._frame_count += 1
+        now: float = time.perf_counter()
+        elapsed: float = now - self._last_time
+        if elapsed >= self._update_period_s:
+            self._fps = self._frame_count / elapsed if elapsed > 0 else 0.0
+            self._frame_count = 0
+            self._last_time = now
+
+    @property
+    def fps(self) -> float:
+        return self._fps
+
+    def text(self) -> str:
+        return "N/A" if not self._enabled else f"{self._fps:.1f}"
 
 def main() -> None:
     logging.basicConfig(
@@ -40,14 +46,7 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="DotShot UI")
-    parser.add_argument(
-        "--file",
-        dest="file",
-        type=str,
-        default=None,
-        help="Run without camera: load this image file",
-    )
+    parser = argparse.ArgumentParser(description="DotShot Live UI")
     parser.add_argument(
         "--camera",
         dest="camera",
@@ -57,35 +56,28 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    use_file = args.file is not None
-
-    cam = None if use_file else LiveCamera(
-        device=(args.camera if args.camera is not None else 0)
-    )
+    cam = LiveCamera(device=(args.camera if args.camera is not None else 0))
     printer = Printer()
 
     cv2.namedWindow("DotShot", cv2.WINDOW_NORMAL)
     try:
         current_frame: np.ndarray
-        if use_file:
-            current_frame = _load_and_process_file(args.file)
-        else:
-            assert cam is not None
-            cam.open()
-            current_frame = cam.capture_frame()
+        cam.open()
+        current_frame = cam.capture_frame()
+
+        # FPS tracking (camera only)
+        fps_counter = FPSCounter(enabled=True, update_period_s=1.0)
 
         fullscreen = False
         while True:
-            if not use_file:
-                assert cam is not None
-                current_frame = cam.capture_frame()
+            current_frame = cam.capture_frame()
+            fps_counter.update()
             cv2.imshow("DotShot", current_frame)
             # Window presentation managed via 'f' toggle
 
             # Update window title with current status (Qt builds only; safe to ignore if unsupported)
-            mode = "File" if use_file else "Camera"
             res_txt = f"{current_frame.shape[1]}x{current_frame.shape[0]}"
-            title = f"DotShot Live - Mode: {mode} | Res: {res_txt}"
+            title = f"DotShot Live - {res_txt} @ {fps_counter.text()}"
             try:
                 cv2.setWindowTitle("DotShot", title)
             except Exception:
@@ -146,7 +138,7 @@ def main() -> None:
         except Exception:
             pass
         finally:
-            if not use_file and cam is not None:
+            if cam is not None:
                 try:
                     cam.close()
                 except Exception as e:

@@ -3,7 +3,7 @@
 Typed live camera capture utility using OpenCV (V4L2 on Linux).
 
 Usage example:
-    from dotshotlive.livecamera import LiveCamera
+    from dotshot.livecamera import LiveCamera
 
     with LiveCamera(device="/dev/video0", width=1280, height=720, fps=30) as cam:
         frame = cam.capture_frame()
@@ -28,7 +28,6 @@ import numpy as np
 CAMERA_WIDTH = 1280
 CAMERA_HEIGHT = 960
 CAMERA_FPS = 30
-WARMUP_FRAMES = 6
 
 
 DeviceArg = Union[int, str]
@@ -114,8 +113,9 @@ class LiveCamera:
         capture.read()
         actual_w = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         actual_h = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        actual_fps = float(capture.get(cv2.CAP_PROP_FPS))
         self._logger.info(
-            "Opened %s at %dx%d", self._requested_device, actual_w, actual_h
+            "Opened %s at %dx%d @ %dfps", self._requested_device, actual_w, actual_h, actual_fps
         )
 
     def close(self) -> None:
