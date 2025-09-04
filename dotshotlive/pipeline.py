@@ -6,8 +6,8 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from dotshot.camera import USBCamera
-from dotshot.printer import Printer
+from dotshotlive.livecamera import LiveCamera
+from dotshotlive.printer import Printer
 
 
 class ImagePipeline:
@@ -16,7 +16,7 @@ class ImagePipeline:
     def __init__(
         self,
         *,
-        cam: Optional[USBCamera],
+        cam: Optional[LiveCamera],
         printer: Printer,
     ) -> None:
         """Initialize devices and image buffers.
@@ -25,7 +25,7 @@ class ImagePipeline:
             cam: Optional camera for live capture; set to None for file mode.
             printer: Printer used to send image files.
         """
-        self.cam: Optional[USBCamera] = cam
+        self.cam: Optional[LiveCamera] = cam
         self.printer: Printer = printer
 
         # Image buffers

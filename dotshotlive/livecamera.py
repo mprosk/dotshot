@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Typed USB webcam capture utility using OpenCV (V4L2 on Linux).
+Typed live camera capture utility using OpenCV (V4L2 on Linux).
 
 Usage example:
-    from dotshot.camera import USBCamera
+    from dotshotlive.livecamera import LiveCamera
 
-    with USBCamera(device="/dev/video0", width=1280, height=720, fps=30) as cam:
+    with LiveCamera(device="/dev/video0", width=1280, height=720, fps=30) as cam:
         frame = cam.capture_frame()
         # frame is a NumPy array: grayscale uint8 (H, W)
 """
@@ -51,8 +51,8 @@ def _device_to_index(device: DeviceArg) -> int:
     return 0
 
 
-class USBCamera:
-    """Minimal, typed USB camera wrapper for single-frame capture.
+class LiveCamera:
+    """Minimal, typed live camera wrapper for single-frame capture.
 
     Frames are returned as grayscale (uint8) arrays of shape (H, W).
     """
@@ -164,7 +164,7 @@ class USBCamera:
         # Log min and max values for debugging
         min_val = np.min(frame_gray)
         max_val = np.max(frame_gray)
-        self._logger.info("Frame grayscale range: min=%d, max=%d", min_val, max_val)
+        self._logger.debug("Frame grayscale range: min=%d, max=%d", min_val, max_val)
 
         # Normalize to 0-255 range
         frame_gray = cv2.normalize(

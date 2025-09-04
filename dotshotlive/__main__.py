@@ -6,8 +6,8 @@ from datetime import datetime
 import cv2
 import numpy as np
 
-from dotshot.camera import USBCamera
-from dotshot.printer import Printer
+from dotshotlive.livecamera import LiveCamera
+from dotshotlive.printer import Printer
 
 
 def _load_and_process_file(path: str) -> np.ndarray:
@@ -36,7 +36,7 @@ def _load_and_process_file(path: str) -> np.ndarray:
 
 def main() -> None:
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
@@ -59,8 +59,8 @@ def main() -> None:
 
     use_file = args.file is not None
 
-    cam = None if use_file else USBCamera(
-        device=(args.camera if args.camera is not None else 0), warmup_frames=0
+    cam = None if use_file else LiveCamera(
+        device=(args.camera if args.camera is not None else 0)
     )
     printer = Printer()
 
