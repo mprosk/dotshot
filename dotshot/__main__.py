@@ -40,7 +40,11 @@ def main() -> None:
 
     use_file = args.file is not None
 
-    cam = None if use_file else USBCamera(device=(args.camera if args.camera is not None else 0))
+    cam = (
+        None
+        if use_file
+        else USBCamera(device=(args.camera if args.camera is not None else 0))
+    )
     printer = Printer()
 
     pipeline = ImagePipeline(
