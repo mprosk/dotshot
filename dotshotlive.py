@@ -1,8 +1,22 @@
+#!/usr/bin/env python3
+"""DotShot Live photobooth application.
+
+Provides a live camera preview with a photobooth flow:
+- Space: start 3-2-1 countdown overlay, white flash, capture a frame
+- Space again: return to live view
+- 'p' and 's': print or save only when a frame is captured
+- 'f': toggle fullscreen; 'q'/Esc: quit
+
+This module uses OpenCV for camera I/O and window management.
+"""
 import argparse
 import logging
 import os
-from datetime import datetime
+import tempfile
 import time
+from datetime import datetime
+from enum import Enum, auto
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -12,7 +26,7 @@ from dotshot.printer import Printer
 
 
 class FPSCounter:
-    """Lightweight FPS calculator with periodic updates."""
+    """Lightweight frames-per-second calculator with periodic updates."""
 
     def __init__(self, *, enabled: bool, update_period_s: float = 1.0) -> None:
         self._enabled: bool = enabled
@@ -35,36 +49,247 @@ class FPSCounter:
 
     @property
     def fps(self) -> float:
+        """Last measured frames-per-second value."""
         return self._fps
 
     def text(self) -> str:
+        """Short text representation of the current FPS."""
         return "N/A" if not self._enabled else f"{self._fps:.1f}"
 
 
-def _draw_center_text(
-    image: np.ndarray,
-    text: str,
-    *,
-    scale: float = 5.0,
-    thickness: int = 6,
-) -> np.ndarray:
-    """Return a copy of image with centered white text overlay."""
-    output: np.ndarray = image.copy()
-    font = cv2.FONT_HERSHEY_SIMPLEX
-    (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
-    x = max(0, (output.shape[1] - text_w) // 2)
-    y = max(text_h + baseline, (output.shape[0] + text_h) // 2)
-    color = 255 if output.ndim == 2 else (255, 255, 255)
-    cv2.putText(output, text, (x, y), font, scale, color, thickness, cv2.LINE_AA)
-    return output
+class PhotoboothState(Enum):
+    """Enumeration of photobooth UI states."""
+
+    LIVE = auto()
+    COUNTDOWN = auto()
+    FLASH = auto()
+    CAPTURED = auto()
+
+
+class DotShotLiveApp:
+    """Main application class encapsulating the photobooth UI loop and actions."""
+
+    def __init__(self, *, cam: LiveCamera, printer: Printer) -> None:
+        """Initialize the app with a camera and printer.
+
+        Args:
+            cam: OpenCV-backed camera wrapper.
+            printer: Printer interface used for printing captured frames.
+        """
+        self.cam: LiveCamera = cam
+        self.printer: Printer = printer
+        self.window_name: str = "DotShot"
+        self.fps_counter: FPSCounter = FPSCounter(enabled=True, update_period_s=1.0)
+        self.state: PhotoboothState = PhotoboothState.LIVE
+        self.countdown_start: float = 0.0
+        self.countdown_total: int = 3
+        self.flash_start: float = 0.0
+        self.flash_duration_s: float = 0.15
+        self.captured_frame: Optional[np.ndarray] = None
+        self.fullscreen: bool = False
+
+    def run(self) -> None:
+        """Run the main event loop until the user quits."""
+        cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
+        try:
+            self.cam.open()
+            current_frame: np.ndarray = self.cam.capture_frame()
+            while True:
+                display_frame: np.ndarray = self._update_state_and_get_display(
+                    current_frame
+                )
+                cv2.imshow(self.window_name, display_frame)
+                self._update_window_title(display_frame)
+
+                key_full: int = int(cv2.waitKey(1))
+                if key_full != -1:
+                    logging.debug(f"Key: {key_full}")
+                key: int = key_full & 0xFFFFFFFF
+                if not self._handle_key(key):
+                    break
+
+                if self.state in (PhotoboothState.LIVE, PhotoboothState.COUNTDOWN):
+                    current_frame = display_frame
+        finally:
+            try:
+                cv2.destroyAllWindows()
+            except Exception:
+                pass
+            try:
+                self.cam.close()
+            except Exception as e:
+                logging.error("Error closing camera: %s", e)
+
+    def _update_state_and_get_display(self, last_frame: np.ndarray) -> np.ndarray:
+        """Advance state as needed and return the frame to display.
+
+        Args:
+            last_frame: The last frame displayed; used during flash to size the white screen.
+
+        Returns:
+            The image to present in the window for the current iteration.
+        """
+        if self.state == PhotoboothState.LIVE:
+            frame: np.ndarray = self.cam.capture_frame()
+            self.fps_counter.update()
+            return frame
+        if self.state == PhotoboothState.COUNTDOWN:
+            frame = self.cam.capture_frame()
+            elapsed: float = time.perf_counter() - self.countdown_start
+            remaining: int = self.countdown_total - int(elapsed)
+            if remaining <= 0:
+                self._start_flash()
+                return np.full_like(frame, 255)
+            return self._draw_center_text(frame, str(remaining))
+        if self.state == PhotoboothState.FLASH:
+            if (time.perf_counter() - self.flash_start) >= self.flash_duration_s:
+                shot: np.ndarray = self.cam.capture_frame()
+                self.captured_frame = shot
+                self.state = PhotoboothState.CAPTURED
+                return self.captured_frame
+            return np.full_like(last_frame, 255)
+        assert self.captured_frame is not None
+        return self.captured_frame
+
+    def _update_window_title(self, display_frame: np.ndarray) -> None:
+        """Update the window title with resolution and FPS."""
+        res_txt = f"{display_frame.shape[1]}x{display_frame.shape[0]}"
+        fps_txt = (
+            f"@ {self.fps_counter.text()}" if self.state == PhotoboothState.LIVE else ""
+        )
+        title = f"DotShot Live - {res_txt} {fps_txt}"
+        try:
+            cv2.setWindowTitle(self.window_name, title)
+        except Exception:
+            pass
+
+    def _handle_key(self, key: int) -> bool:
+        """Handle a single key event.
+
+        Args:
+            key: Integer key code from OpenCV's waitKey.
+
+        Returns:
+            False to request exit; True to continue running.
+        """
+        if key in (27, ord("q")):
+            return False
+        if (key & 0xFF) == ord("f"):
+            self.fullscreen = not self.fullscreen
+            logging.debug("Fullscreen %s", "ON" if self.fullscreen else "OFF")
+            try:
+                cv2.setWindowProperty(
+                    self.window_name,
+                    cv2.WND_PROP_FULLSCREEN,
+                    cv2.WINDOW_FULLSCREEN if self.fullscreen else cv2.WINDOW_NORMAL,
+                )
+            except Exception as e:
+                logging.error("Failed to set fullscreen mode: %s", e)
+            return True
+        if (key & 0xFF) == ord(" "):
+            if self.state == PhotoboothState.LIVE:
+                self._start_countdown()
+            elif self.state == PhotoboothState.CAPTURED:
+                self.state = PhotoboothState.LIVE
+                self.captured_frame = None
+            return True
+        if self.state != PhotoboothState.CAPTURED:
+            return True
+        if (key & 0xFF) == ord("p") and self.captured_frame is not None:
+            self._print_captured()
+            return True
+        if (key & 0xFF) == ord("s") and self.captured_frame is not None:
+            self._save_captured()
+            return True
+        return True
+
+    def _start_countdown(self) -> None:
+        """Enter countdown state and clear any previous capture."""
+        self.state = PhotoboothState.COUNTDOWN
+        self.countdown_start = time.perf_counter()
+        self.captured_frame = None
+
+    def _start_flash(self) -> None:
+        """Enter flash state and timestamp its start."""
+        self.state = PhotoboothState.FLASH
+        self.flash_start = time.perf_counter()
+
+    def _print_captured(self) -> None:
+        """Print the captured frame via the configured printer."""
+        assert self.captured_frame is not None
+
+        tmp_path: Optional[str] = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+                cv2.imwrite(tmp_path, self.captured_frame)
+            logging.info(f"Printing {self.captured_frame.shape} frame from {tmp_path}")
+            self.printer.print_image_file(tmp_path)
+        finally:
+            if tmp_path is not None:
+                try:
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+
+    def _save_captured(self) -> None:
+        """Save the captured frame to the repository's images directory."""
+        assert self.captured_frame is not None
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        images_dir = os.path.join(repo_root, "images")
+        os.makedirs(images_dir, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_path = os.path.join(images_dir, f"dotshot_{ts}.png")
+        cv2.imwrite(out_path, self.captured_frame)
+        logging.info(f"Saved image to {out_path}")
+
+    def _draw_center_text(
+        self,
+        image: np.ndarray,
+        text: str,
+        *,
+        scale: float = 5.0,
+        thickness: int = 6,
+    ) -> np.ndarray:
+        """Return a copy of image with centered white text overlay.
+
+        Args:
+            image: Grayscale or color image to draw on.
+            text: Text to render at the center.
+            scale: Font scale passed to OpenCV.
+            thickness: Line thickness for the text strokes.
+
+        Returns:
+            A new image containing the centered text overlay.
+        """
+        output: np.ndarray = image.copy()
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
+        x = max(0, (output.shape[1] - text_w) // 2)
+        y = max(text_h + baseline, (output.shape[0] + text_h) // 2)
+        color = 255 if output.ndim == 2 else (255, 255, 255)
+        cv2.putText(output, text, (x, y), font, scale, color, thickness, cv2.LINE_AA)
+        return output
+
 
 def main() -> None:
+    """Entry point: parse args, build the app, and run it."""
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
-
-    parser = argparse.ArgumentParser(description="DotShot Live UI")
+    parser = argparse.ArgumentParser(
+        description="DotShot Live UI",
+        formatter_class=argparse.RawTextHelpFormatter,
+        epilog=(
+            "Controls:\n"
+            "  Space: Capture a frame or return to live view\n"
+            "  p: Print captured frame\n"
+            "  s: Save captured frame\n"
+            "  f: Toggle fullscreen\n"
+            "  q/Esc: Quit"
+        ),
+    )
     parser.add_argument(
         "--camera",
         dest="camera",
@@ -73,143 +298,10 @@ def main() -> None:
         help="Camera device index or path (e.g., 0 or /dev/video0)",
     )
     args = parser.parse_args()
-
     cam = LiveCamera(device=(args.camera if args.camera is not None else 0))
     printer = Printer()
-
-    cv2.namedWindow("DotShot", cv2.WINDOW_NORMAL)
-    try:
-        current_frame: np.ndarray
-        cam.open()
-        current_frame = cam.capture_frame()
-
-        # FPS tracking for live mode only
-        fps_counter = FPSCounter(enabled=True, update_period_s=1.0)
-
-        # Photobooth state machine
-        state: str = "live"  # live | countdown | flash | captured
-        countdown_start: float = 0.0
-        countdown_total: int = 3
-        flash_start: float = 0.0
-        flash_duration_s: float = 0.15
-        captured_frame: np.ndarray | None = None
-
-        fullscreen = False
-        while True:
-            # State update and frame selection
-            if state == "live":
-                current_frame = cam.capture_frame()
-                fps_counter.update()
-                display_frame: np.ndarray = current_frame
-            elif state == "countdown":
-                current_frame = cam.capture_frame()
-                elapsed: float = time.perf_counter() - countdown_start
-                remaining: int = countdown_total - int(elapsed)
-                if remaining <= 0:
-                    state = "flash"
-                    flash_start = time.perf_counter()
-                    display_frame = np.full_like(current_frame, 255)
-                else:
-                    display_frame = _draw_center_text(current_frame, str(remaining))
-            elif state == "flash":
-                if (time.perf_counter() - flash_start) >= flash_duration_s:
-                    shot: np.ndarray = cam.capture_frame()
-                    captured_frame = shot
-                    state = "captured"
-                    display_frame = captured_frame
-                else:
-                    display_frame = np.full_like(current_frame, 255)
-            else:  # captured
-                assert captured_frame is not None
-                display_frame = captured_frame
-
-            cv2.imshow("DotShot", display_frame)
-            # Window presentation managed via 'f' toggle
-
-            # Update window title (Qt builds only; safe to ignore if unsupported)
-            res_txt = f"{display_frame.shape[1]}x{display_frame.shape[0]}"
-            fps_txt = fps_counter.text() if state == "live" else "—"
-            title = f"DotShot Live - {res_txt} @ {fps_txt}"
-            try:
-                cv2.setWindowTitle("DotShot", title)
-            except Exception:
-                pass
-
-            key_full = int(cv2.waitKey(1))
-            if key_full != -1:
-                logging.debug(f"Key: {key_full}")
-            key = key_full & 0xFFFFFFFF
-
-            if key in (27, ord("q")):
-                break
-
-            if (key & 0xFF) == ord("f"):
-                fullscreen = not fullscreen
-                logging.debug("Fullscreen %s", "ON" if fullscreen else "OFF")
-                try:
-                    cv2.setWindowProperty(
-                        "DotShot",
-                        cv2.WND_PROP_FULLSCREEN,
-                        cv2.WINDOW_FULLSCREEN if fullscreen else cv2.WINDOW_NORMAL,
-                    )
-                except Exception as e:
-                    logging.error("Failed to set fullscreen mode: %s", e)
-                continue
-
-            # Spacebar behavior
-            if (key & 0xFF) == ord(" "):
-                if state == "live":
-                    state = "countdown"
-                    countdown_start = time.perf_counter()
-                    captured_frame = None
-                elif state == "captured":
-                    state = "live"
-                    captured_frame = None
-                # Ignore in countdown/flash
-                continue
-
-            # Only allow actions below when a photo is captured
-            if state != "captured":
-                continue
-
-            if (key & 0xFF) == ord("p") and captured_frame is not None:
-                import tempfile
-
-                tmp_path = None
-                try:
-                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-                        tmp_path = tmp.name
-                        cv2.imwrite(tmp_path, captured_frame)
-                    logging.info(f"Printing {captured_frame.shape} frame from {tmp_path}")
-                    printer.print_image_file(tmp_path)
-                finally:
-                    if tmp_path is not None:
-                        try:
-                            os.remove(tmp_path)
-                        except Exception:
-                            pass
-                continue
-
-            if (key & 0xFF) == ord("s") and captured_frame is not None:
-                repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-                images_dir = os.path.join(repo_root, "images")
-                os.makedirs(images_dir, exist_ok=True)
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                out_path = os.path.join(images_dir, f"dotshot_{ts}.png")
-                cv2.imwrite(out_path, captured_frame)
-                logging.info(f"Saved image to {out_path}")
-                continue
-    finally:
-        try:
-            cv2.destroyAllWindows()
-        except Exception:
-            pass
-        finally:
-            if cam is not None:
-                try:
-                    cam.close()
-                except Exception as e:
-                    logging.error("Error closing camera: %s", e)
+    app = DotShotLiveApp(cam=cam, printer=printer)
+    app.run()
 
 
 if __name__ == "__main__":
