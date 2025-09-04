@@ -115,7 +115,11 @@ class LiveCamera:
         actual_h = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         actual_fps = float(capture.get(cv2.CAP_PROP_FPS))
         self._logger.info(
-            "Opened %s at %dx%d @ %dfps", self._requested_device, actual_w, actual_h, actual_fps
+            "Opened %s at %dx%d @ %dfps",
+            self._requested_device,
+            actual_w,
+            actual_h,
+            actual_fps,
         )
 
     def close(self) -> None:
