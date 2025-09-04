@@ -70,6 +70,20 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Running DotShot
+
+`dotshotlive.py` is the main application for DotShot
+
+```bash
+python3 dotshotlive.py
+```
+
+For testing/development, you can run the `dotshot` module
+
+```bash
+python3 -m dotshot
+```
+
 ## Running as a service (optional)
 
 Create `/etc/systemd/system/dotshot.service`:
