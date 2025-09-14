@@ -20,6 +20,12 @@ RESOLUTIONS = [
 
 QUANT_LEVELS = [2, 4, 8, 16, 32, 64, 128, 256]
 
+# Edge modes
+EDGE_NONE = 0
+EDGE_SOBEL = 1
+EDGE_CANNY = 2
+EDGE_UNION = 3
+
 
 class ImagePipeline:
     """Encapsulates capture, resize, quantization, and display state."""
@@ -44,7 +50,7 @@ class ImagePipeline:
         self.res_index: int = len(RESOLUTIONS) - 1
         self.level_offset: int = 0
         self.quant_index: int = len(QUANT_LEVELS) - 1
-        self.edge_enabled: bool = False
+        self.edge_mode: int = EDGE_NONE
 
         # Image buffers
         self.raw: np.ndarray = np.zeros((1, 1), dtype=np.uint8)
@@ -147,10 +153,26 @@ class ImagePipeline:
         return int(QUANT_LEVELS[self.quant_index]) if QUANT_LEVELS else 256
 
     def toggle_edge(self) -> None:
-        """Toggle edge detection mode and rebuild the frame accordingly."""
-        self.edge_enabled = not self.edge_enabled
-        logging.debug("Edge detection %s", "ENABLED" if self.edge_enabled else "DISABLED")
+        """Cycle edge detection mode: off -> sobel -> canny -> union -> off."""
+        prev = self.edge_mode
+        self.edge_mode = (self.edge_mode + 1) % 4
+        logging.debug(
+            "Edge mode: %s -> %s",
+            self.edge_mode_name(prev),
+            self.edge_mode_name(self.edge_mode),
+        )
         self._rebuild_from_raw()
+
+    def edge_mode_name(self, mode: Optional[int] = None) -> str:
+        """Return human-readable edge mode name."""
+        m = self.edge_mode if mode is None else int(mode)
+        if m == EDGE_SOBEL:
+            return "SOBEL"
+        if m == EDGE_CANNY:
+            return "CANNY"
+        if m == EDGE_UNION:
+            return "UNION"
+        return "OFF"
 
     def get_display(self) -> np.ndarray:
         """Return a grayscale display image without any overlay (clean preview)."""
@@ -197,11 +219,12 @@ class ImagePipeline:
         """
         tgt_h, tgt_w = self._current_target()
         self.orig = self._resize_fit(self.raw, tgt_h, tgt_w)
-        if self.edge_enabled:
-            self.frame = self._edge_detect(self.orig)
-            self.quant = self.orig  # Preserve a meaningful reference
-        else:
+        if self.edge_mode == EDGE_NONE:
             self.quant = self._quantize_gray(self.orig)
+            self.frame = self._shift_quant_levels(self.quant, self.level_offset)
+        else:
+            edge_image = self._edge_detect(self.orig, self.edge_mode)
+            self.quant = self._quantize_gray(edge_image)
             self.frame = self._shift_quant_levels(self.quant, self.level_offset)
 
     @staticmethod
@@ -243,8 +266,8 @@ class ImagePipeline:
             shifted = np.ascontiguousarray(shifted)
         return shifted
 
-    def _edge_detect(self, image: np.ndarray) -> np.ndarray:
-        """Run edge detection on a normalized grayscale image and return inverted edges.
+    def _edge_detect(self, image: np.ndarray, mode: int) -> np.ndarray:
+        """Run selected edge detection and return inverted edges.
 
         Edge detection bypasses quantization and offset. The output is uint8 with
         white background (255) and black edges (0).
@@ -255,17 +278,37 @@ class ImagePipeline:
         # Light blur to suppress noise; kernel size kept small for responsiveness
         blurred = cv2.GaussianBlur(norm, (3, 3), 0)
 
-        # Sobel gradients (X and Y), gradient magnitude
-        grad_x = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
-        grad_y = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
-        mag = cv2.magnitude(grad_x, grad_y)
-
-        # Normalize magnitude to 0..255 and convert to uint8
-        mag = cv2.normalize(mag, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-        mag_u8 = mag.astype(np.uint8)
+        # Compute masks according to mode
+        mask: np.ndarray
+        if mode == EDGE_SOBEL:
+            grad_x = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
+            grad_y = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
+            mag = cv2.magnitude(grad_x, grad_y)
+            mask = cv2.normalize(mag, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+            mask = mask.astype(np.uint8)
+        elif mode == EDGE_CANNY:
+            v = float(np.median(blurred))
+            lower = int(max(0, 0.66 * v))
+            upper = int(min(255, 1.33 * v if v > 0 else 100))
+            mask = cv2.Canny(blurred, lower, upper, L2gradient=True)
+        elif mode == EDGE_UNION:
+            # Sobel
+            gx = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
+            gy = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
+            mag2 = cv2.magnitude(gx, gy)
+            sobel_u8 = cv2.normalize(mag2, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            # Canny
+            vm = float(np.median(blurred))
+            lo = int(max(0, 0.66 * vm))
+            hi = int(min(255, 1.33 * vm if vm > 0 else 100))
+            canny_u8 = cv2.Canny(blurred, lo, hi, L2gradient=True)
+            # Union (max)
+            mask = cv2.max(sobel_u8, canny_u8)
+        else:
+            mask = norm.astype(np.uint8)
 
         # Invert so background is white (255) and edges are black (0)
-        inv = cv2.bitwise_not(mag_u8)
+        inv = cv2.bitwise_not(mask)
         if not inv.flags["C_CONTIGUOUS"]:
             inv = np.ascontiguousarray(inv)
         return inv

@@ -73,7 +73,7 @@ def main() -> None:
             res_txt = f"{pipeline.orig.shape[1]}x{pipeline.orig.shape[0]}"
             title = (
                 f"DotShot - Mode: {mode} | Res: {res_txt} | Levels: {levels_val} | "
-                f"Offset: {pipeline.level_offset:+d} | Edge: {'ON' if pipeline.edge_enabled else 'OFF'}"
+                f"Offset: {pipeline.level_offset:+d} | Edge: {pipeline.edge_mode_name()}"
             )
             try:
                 cv2.setWindowTitle("DotShot", title)
