@@ -44,6 +44,7 @@ class ImagePipeline:
         self.res_index: int = len(RESOLUTIONS) - 1
         self.level_offset: int = 0
         self.quant_index: int = len(QUANT_LEVELS) - 1
+        self.edge_enabled: bool = False
 
         # Image buffers
         self.raw: np.ndarray = np.zeros((1, 1), dtype=np.uint8)
@@ -145,6 +146,12 @@ class ImagePipeline:
         """Return the current number of quantization levels."""
         return int(QUANT_LEVELS[self.quant_index]) if QUANT_LEVELS else 256
 
+    def toggle_edge(self) -> None:
+        """Toggle edge detection mode and rebuild the frame accordingly."""
+        self.edge_enabled = not self.edge_enabled
+        logging.debug("Edge detection %s", "ENABLED" if self.edge_enabled else "DISABLED")
+        self._rebuild_from_raw()
+
     def get_display(self) -> np.ndarray:
         """Return a grayscale display image without any overlay (clean preview)."""
         if self.frame.ndim == 2:
@@ -183,11 +190,19 @@ class ImagePipeline:
         return h, w
 
     def _rebuild_from_raw(self) -> None:
-        """Recompute `orig`, `quant`, and `frame` arrays from the latest `raw`."""
+        """Recompute derived images from the latest `raw`.
+
+        When edge detection is enabled, compute edges from a normalized version of
+        `orig` and bypass quantization and offset adjustments.
+        """
         tgt_h, tgt_w = self._current_target()
         self.orig = self._resize_fit(self.raw, tgt_h, tgt_w)
-        self.quant = self._quantize_gray(self.orig)
-        self.frame = self._shift_quant_levels(self.quant, self.level_offset)
+        if self.edge_enabled:
+            self.frame = self._edge_detect(self.orig)
+            self.quant = self.orig  # Preserve a meaningful reference
+        else:
+            self.quant = self._quantize_gray(self.orig)
+            self.frame = self._shift_quant_levels(self.quant, self.level_offset)
 
     @staticmethod
     def _resize_fit(image: np.ndarray, max_h: int, max_w: int) -> np.ndarray:
@@ -227,3 +242,30 @@ class ImagePipeline:
         if not shifted.flags["C_CONTIGUOUS"]:
             shifted = np.ascontiguousarray(shifted)
         return shifted
+
+    def _edge_detect(self, image: np.ndarray) -> np.ndarray:
+        """Run edge detection on a normalized grayscale image and return inverted edges.
+
+        Edge detection bypasses quantization and offset. The output is uint8 with
+        white background (255) and black edges (0).
+        """
+        # Normalize to 0-255 range
+        norm = cv2.normalize(image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+        
+        # Light blur to suppress noise; kernel size kept small for responsiveness
+        blurred = cv2.GaussianBlur(norm, (3, 3), 0)
+
+        # Sobel gradients (X and Y), gradient magnitude
+        grad_x = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
+        mag = cv2.magnitude(grad_x, grad_y)
+
+        # Normalize magnitude to 0..255 and convert to uint8
+        mag = cv2.normalize(mag, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+        mag_u8 = mag.astype(np.uint8)
+
+        # Invert so background is white (255) and edges are black (0)
+        inv = cv2.bitwise_not(mag_u8)
+        if not inv.flags["C_CONTIGUOUS"]:
+            inv = np.ascontiguousarray(inv)
+        return inv

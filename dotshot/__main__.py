@@ -73,7 +73,7 @@ def main() -> None:
             res_txt = f"{pipeline.orig.shape[1]}x{pipeline.orig.shape[0]}"
             title = (
                 f"DotShot - Mode: {mode} | Res: {res_txt} | Levels: {levels_val} | "
-                f"Offset: {pipeline.level_offset:+d}"
+                f"Offset: {pipeline.level_offset:+d} | Edge: {'ON' if pipeline.edge_enabled else 'OFF'}"
             )
             try:
                 cv2.setWindowTitle("DotShot", title)
@@ -107,6 +107,10 @@ def main() -> None:
                     )
                 except Exception as e:
                     logging.error("Failed to set fullscreen mode: %s", e)
+                continue
+
+            if (key & 0xFF) == ord("e"):
+                pipeline.toggle_edge()
                 continue
 
             if key in UP_KEYS:
