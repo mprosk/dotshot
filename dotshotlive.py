@@ -163,9 +163,11 @@ class DotShotLiveApp:
         """Update the window title with resolution and FPS."""
         res_txt = f"{display_frame.shape[1]}x{display_frame.shape[0]}"
         fps_txt = (
-            f"@ {self.fps_counter.text()}" if self.state == PhotoboothState.LIVE else ""
+            f"{self.fps_counter.text()}"
+            if self.state == PhotoboothState.LIVE
+            else "N/A"
         )
-        title = f"DotShot Live - {res_txt} {fps_txt}"
+        title = f"DotShot Live | {res_txt} | {fps_txt} fps | Edge: {self.edge_mode_name()} | Thresh: {self.sobel_threshold}"
         try:
             cv2.setWindowTitle(self.window_name, title)
         except Exception:
@@ -326,7 +328,10 @@ class DotShotLiveApp:
 
         # Union of non-thresholded magnitude and thresholded map
         union = cv2.max(mag_u8, sobel_bin)
-        return union
+
+        # Invert so background is white and edges are black
+        inv = cv2.bitwise_not(union)
+        return inv
 
 
 def main() -> None:
