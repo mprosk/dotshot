@@ -154,9 +154,17 @@ class ImagePipeline:
         return int(QUANT_LEVELS[self.quant_index]) if QUANT_LEVELS else 256
 
     def toggle_edge(self) -> None:
-        """Cycle edge detection mode: off -> sobel -> canny -> union -> off."""
+        """Cycle edge mode: OFF -> SOBEL -> UNION -> OFF (skip CANNY in cycle)."""
         prev = self.edge_mode
-        self.edge_mode = (self.edge_mode + 1) % 4
+        if self.edge_mode == EDGE_NONE:
+            self.edge_mode = EDGE_SOBEL
+        elif self.edge_mode == EDGE_SOBEL:
+            self.edge_mode = EDGE_UNION
+        elif self.edge_mode == EDGE_UNION:
+            self.edge_mode = EDGE_NONE
+        else:
+            # If currently in CANNY (e.g., set programmatically), go to OFF
+            self.edge_mode = EDGE_NONE
         logging.debug(
             "Edge mode: %s -> %s",
             self.edge_mode_name(prev),
@@ -305,23 +313,19 @@ class ImagePipeline:
             upper = int(min(255, 1.33 * v if v > 0 else 100))
             mask = cv2.Canny(blurred, lower, upper, L2gradient=True)
         elif mode == EDGE_UNION:
-            # Sobel
+            # Sobel (non-thresholded)
             gx = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
             gy = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
             mag2 = cv2.magnitude(gx, gy)
             sobel_u8 = cv2.normalize(mag2, None, 0, 255, cv2.NORM_MINMAX).astype(
                 np.uint8
             )
+            # Thresholded Sobel
             _, sobel_bin = cv2.threshold(
                 sobel_u8, int(self.sobel_threshold), 255, cv2.THRESH_BINARY
             )
-            # Canny
-            vm = float(np.median(blurred))
-            lo = int(max(0, 0.66 * vm))
-            hi = int(min(255, 1.33 * vm if vm > 0 else 100))
-            canny_u8 = cv2.Canny(blurred, lo, hi, L2gradient=True)
-            # Union (max)
-            mask = cv2.max(sobel_bin, canny_u8)
+            # Union of thresholded and non-thresholded Sobel
+            mask = cv2.max(sobel_bin, sobel_u8)
         else:
             mask = norm.astype(np.uint8)
 
