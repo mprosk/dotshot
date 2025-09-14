@@ -87,6 +87,8 @@ class DotShotLiveApp:
         self.flash_duration_s: float = 0.15
         self.captured_frame: Optional[np.ndarray] = None
         self.fullscreen: bool = False
+        self.edge_enabled: bool = False
+        self.sobel_threshold: int = 24
 
     def run(self) -> None:
         """Run the main event loop until the user quits."""
@@ -131,10 +133,14 @@ class DotShotLiveApp:
         """
         if self.state == PhotoboothState.LIVE:
             frame: np.ndarray = self.cam.capture_frame()
+            if self.edge_enabled:
+                frame = self._apply_edge_filter(frame)
             self.fps_counter.update()
             return frame
         if self.state == PhotoboothState.COUNTDOWN:
             frame = self.cam.capture_frame()
+            if self.edge_enabled:
+                frame = self._apply_edge_filter(frame)
             elapsed: float = time.perf_counter() - self.countdown_start
             remaining: int = self.countdown_total - int(elapsed)
             if remaining <= 0:
@@ -144,6 +150,8 @@ class DotShotLiveApp:
         if self.state == PhotoboothState.FLASH:
             if (time.perf_counter() - self.flash_start) >= self.flash_duration_s:
                 shot: np.ndarray = self.cam.capture_frame()
+                if self.edge_enabled:
+                    shot = self._apply_edge_filter(shot)
                 self.captured_frame = shot
                 self.state = PhotoboothState.CAPTURED
                 return self.captured_frame
@@ -192,6 +200,21 @@ class DotShotLiveApp:
             elif self.state == PhotoboothState.CAPTURED:
                 self.state = PhotoboothState.LIVE
                 self.captured_frame = None
+            return True
+        if (key & 0xFF) == ord("e"):
+            self.edge_enabled = not self.edge_enabled
+            logging.info(
+                "Edge detection %s", "ENABLED" if self.edge_enabled else "DISABLED"
+            )
+            return True
+        # Arrow keys for threshold adjustment (Up/Down)
+        if key in {82, 2490368}:  # Up
+            self.sobel_threshold = min(255, self.sobel_threshold + 2)
+            logging.debug("Threshold -> %d", self.sobel_threshold)
+            return True
+        if key in {84, 2621440}:  # Down
+            self.sobel_threshold = max(0, self.sobel_threshold - 2)
+            logging.debug("Threshold -> %d", self.sobel_threshold)
             return True
         if self.state != PhotoboothState.CAPTURED:
             return True
@@ -270,6 +293,40 @@ class DotShotLiveApp:
         color = 255 if output.ndim == 2 else (255, 255, 255)
         cv2.putText(output, text, (x, y), font, scale, color, thickness, cv2.LINE_AA)
         return output
+
+    def _apply_edge_filter(self, image: np.ndarray) -> np.ndarray:
+        """Apply Sobel + thresholded Sobel union to a grayscale image.
+
+        Args:
+            image: Grayscale uint8 image.
+
+        Returns:
+            Grayscale uint8 image where edges are emphasized.
+        """
+        # Ensure uint8
+        if image.dtype != np.uint8:
+            img_u8 = image.astype(np.uint8)
+        else:
+            img_u8 = image
+
+        # Light blur to reduce noise
+        blurred = cv2.GaussianBlur(img_u8, (3, 3), 0)
+
+        # Sobel gradients and magnitude
+        grad_x = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
+        grad_y = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
+        mag = cv2.magnitude(grad_x, grad_y)
+        mag = cv2.normalize(mag, None, 0, 255, cv2.NORM_MINMAX)
+        mag_u8 = mag.astype(np.uint8)
+
+        # Thresholded Sobel
+        _, sobel_bin = cv2.threshold(
+            mag_u8, int(self.sobel_threshold), 255, cv2.THRESH_BINARY
+        )
+
+        # Union of non-thresholded magnitude and thresholded map
+        union = cv2.max(mag_u8, sobel_bin)
+        return union
 
 
 def main() -> None:
