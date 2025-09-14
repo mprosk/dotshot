@@ -51,6 +51,7 @@ class ImagePipeline:
         self.level_offset: int = 0
         self.quant_index: int = len(QUANT_LEVELS) - 1
         self.edge_mode: int = EDGE_NONE
+        self.sobel_threshold: int = 24
 
         # Image buffers
         self.raw: np.ndarray = np.zeros((1, 1), dtype=np.uint8)
@@ -174,6 +175,15 @@ class ImagePipeline:
             return "UNION"
         return "OFF"
 
+    def adjust_sobel_threshold(self, delta: int) -> None:
+        """Adjust Sobel binary threshold by delta (clamped 0..255)."""
+        prev = self.sobel_threshold
+        self.sobel_threshold = int(max(0, min(255, prev + int(delta))))
+        if self.sobel_threshold != prev:
+            logging.debug("Sobel threshold: %d -> %d", prev, self.sobel_threshold)
+            if self.edge_mode in (EDGE_SOBEL, EDGE_UNION):
+                self._rebuild_from_raw()
+
     def get_display(self) -> np.ndarray:
         """Return a grayscale display image without any overlay (clean preview)."""
         if self.frame.ndim == 2:
@@ -274,7 +284,7 @@ class ImagePipeline:
         """
         # Normalize to 0-255 range
         norm = cv2.normalize(image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-        
+
         # Light blur to suppress noise; kernel size kept small for responsiveness
         blurred = cv2.GaussianBlur(norm, (3, 3), 0)
 
@@ -284,8 +294,11 @@ class ImagePipeline:
             grad_x = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
             grad_y = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
             mag = cv2.magnitude(grad_x, grad_y)
-            mask = cv2.normalize(mag, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-            mask = mask.astype(np.uint8)
+            mag = cv2.normalize(mag, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+            mag_u8 = mag.astype(np.uint8)
+            _, mask = cv2.threshold(
+                mag_u8, int(self.sobel_threshold), 255, cv2.THRESH_BINARY
+            )
         elif mode == EDGE_CANNY:
             v = float(np.median(blurred))
             lower = int(max(0, 0.66 * v))
@@ -296,14 +309,19 @@ class ImagePipeline:
             gx = cv2.Sobel(blurred, cv2.CV_32F, 1, 0, ksize=3)
             gy = cv2.Sobel(blurred, cv2.CV_32F, 0, 1, ksize=3)
             mag2 = cv2.magnitude(gx, gy)
-            sobel_u8 = cv2.normalize(mag2, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
+            sobel_u8 = cv2.normalize(mag2, None, 0, 255, cv2.NORM_MINMAX).astype(
+                np.uint8
+            )
+            _, sobel_bin = cv2.threshold(
+                sobel_u8, int(self.sobel_threshold), 255, cv2.THRESH_BINARY
+            )
             # Canny
             vm = float(np.median(blurred))
             lo = int(max(0, 0.66 * vm))
             hi = int(min(255, 1.33 * vm if vm > 0 else 100))
             canny_u8 = cv2.Canny(blurred, lo, hi, L2gradient=True)
             # Union (max)
-            mask = cv2.max(sobel_u8, canny_u8)
+            mask = cv2.max(sobel_bin, canny_u8)
         else:
             mask = norm.astype(np.uint8)
 

@@ -69,12 +69,8 @@ def main() -> None:
 
             # Update window title with current status (Qt builds only; safe to ignore if unsupported)
             mode = "File" if use_file else "Camera"
-            levels_val = pipeline.current_levels()
             res_txt = f"{pipeline.orig.shape[1]}x{pipeline.orig.shape[0]}"
-            title = (
-                f"DotShot - Mode: {mode} | Res: {res_txt} | Levels: {levels_val} | "
-                f"Offset: {pipeline.level_offset:+d} | Edge: {pipeline.edge_mode_name()}"
-            )
+            title = f"DotShot - Mode: {mode} | Res: {res_txt} | Thresh: {pipeline.sobel_threshold} | Edge: {pipeline.edge_mode_name()}"
             try:
                 cv2.setWindowTitle("DotShot", title)
             except Exception:
@@ -114,20 +110,14 @@ def main() -> None:
                 continue
 
             if key in UP_KEYS:
-                pipeline.adjust_offset(+1)
+                pipeline.adjust_sobel_threshold(+4)
                 continue
 
             if key in DOWN_KEYS:
-                pipeline.adjust_offset(-1)
+                pipeline.adjust_sobel_threshold(-4)
                 continue
 
-            if key in LEFT_KEYS:
-                pipeline.adjust_quant(-1)
-                continue
-
-            if key in RIGHT_KEYS:
-                pipeline.adjust_quant(+1)
-                continue
+            # Quantization key mappings removed; quantization remains in pipeline
 
             if (key & 0xFF) == ord("p"):
                 pipeline.print_current()
