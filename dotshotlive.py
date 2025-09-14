@@ -167,7 +167,7 @@ class DotShotLiveApp:
             if self.state == PhotoboothState.LIVE
             else "N/A"
         )
-        title = f"DotShot Live | {res_txt} | {fps_txt} fps | Edge: {self.edge_mode_name()} | Thresh: {self.sobel_threshold}"
+        title = f"DotShot Live | {res_txt} | {fps_txt} fps | Thresh: {self.sobel_threshold}"
         try:
             cv2.setWindowTitle(self.window_name, title)
         except Exception:
