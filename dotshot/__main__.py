@@ -110,11 +110,11 @@ def main() -> None:
                 continue
 
             if key in UP_KEYS:
-                pipeline.adjust_sobel_threshold(+4)
+                pipeline.adjust_sobel_threshold(-4)
                 continue
 
             if key in DOWN_KEYS:
-                pipeline.adjust_sobel_threshold(-4)
+                pipeline.adjust_sobel_threshold(+4)
                 continue
 
             # Quantization key mappings removed; quantization remains in pipeline

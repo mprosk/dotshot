@@ -86,6 +86,7 @@ class DotShotLiveApp:
         self.flash_start: float = 0.0
         self.flash_duration_s: float = 0.15
         self.captured_frame: Optional[np.ndarray] = None
+        self.captured_frame_original: Optional[np.ndarray] = None
         self.fullscreen: bool = False
         self.edge_enabled: bool = False
         self.sobel_threshold: int = 24
@@ -150,14 +151,16 @@ class DotShotLiveApp:
         if self.state == PhotoboothState.FLASH:
             if (time.perf_counter() - self.flash_start) >= self.flash_duration_s:
                 shot: np.ndarray = self.cam.capture_frame()
-                if self.edge_enabled:
-                    shot = self._apply_edge_filter(shot)
-                self.captured_frame = shot
+                self.captured_frame_original = shot
+                rendered: np.ndarray = self._render_captured(shot)
+                self.captured_frame = rendered
                 self.state = PhotoboothState.CAPTURED
-                return self.captured_frame
+                return rendered
             return np.full_like(last_frame, 255)
-        assert self.captured_frame is not None
-        return self.captured_frame
+        assert self.captured_frame_original is not None
+        rendered: np.ndarray = self._render_captured(self.captured_frame_original)
+        self.captured_frame = rendered
+        return rendered
 
     def _update_window_title(self, display_frame: np.ndarray) -> None:
         """Update the window title with resolution and FPS."""
@@ -167,7 +170,9 @@ class DotShotLiveApp:
             if self.state == PhotoboothState.LIVE
             else "N/A"
         )
-        title = f"DotShot Live | {res_txt} | {fps_txt} fps | Thresh: {self.sobel_threshold}"
+        title = (
+            f"DotShot Live | {res_txt} | {fps_txt} fps | Thresh: {self.sobel_threshold}"
+        )
         try:
             cv2.setWindowTitle(self.window_name, title)
         except Exception:
@@ -202,6 +207,7 @@ class DotShotLiveApp:
             elif self.state == PhotoboothState.CAPTURED:
                 self.state = PhotoboothState.LIVE
                 self.captured_frame = None
+                self.captured_frame_original = None
             return True
         if (key & 0xFF) == ord("e"):
             self.edge_enabled = not self.edge_enabled
@@ -211,11 +217,11 @@ class DotShotLiveApp:
             return True
         # Arrow keys for threshold adjustment (Up/Down)
         if key in {82, 2490368}:  # Up
-            self.sobel_threshold = min(255, self.sobel_threshold + 2)
+            self.sobel_threshold = min(255, self.sobel_threshold - 4)
             logging.debug("Threshold -> %d", self.sobel_threshold)
             return True
         if key in {84, 2621440}:  # Down
-            self.sobel_threshold = max(0, self.sobel_threshold - 2)
+            self.sobel_threshold = max(0, self.sobel_threshold + 4)
             logging.debug("Threshold -> %d", self.sobel_threshold)
             return True
         if self.state != PhotoboothState.CAPTURED:
@@ -233,6 +239,7 @@ class DotShotLiveApp:
         self.state = PhotoboothState.COUNTDOWN
         self.countdown_start = time.perf_counter()
         self.captured_frame = None
+        self.captured_frame_original = None
 
     def _start_flash(self) -> None:
         """Enter flash state and timestamp its start."""
@@ -292,7 +299,8 @@ class DotShotLiveApp:
         (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
         x = max(0, (output.shape[1] - text_w) // 2)
         y = max(text_h + baseline, (output.shape[0] + text_h) // 2)
-        color = 255 if output.ndim == 2 else (255, 255, 255)
+        value = 0 if self.edge_enabled else 255
+        color = value if output.ndim == 2 else (value, value, value)
         cv2.putText(output, text, (x, y), font, scale, color, thickness, cv2.LINE_AA)
         return output
 
@@ -332,6 +340,20 @@ class DotShotLiveApp:
         # Invert so background is white and edges are black
         inv = cv2.bitwise_not(union)
         return inv
+
+    def _render_captured(self, original: np.ndarray) -> np.ndarray:
+        """Render the captured preview based on current edge settings.
+
+        Args:
+            original: The unmodified frame captured from the camera.
+
+        Returns:
+            The image to display for the captured state, re-rendered using the
+            current edge detection settings and threshold.
+        """
+        if self.edge_enabled:
+            return self._apply_edge_filter(original)
+        return original
 
 
 def main() -> None:
