@@ -70,7 +70,7 @@ def main() -> None:
             # Update window title with current status (Qt builds only; safe to ignore if unsupported)
             mode = "File" if use_file else "Camera"
             res_txt = f"{pipeline.orig.shape[1]}x{pipeline.orig.shape[0]}"
-            title = f"DotShot - Mode: {mode} | Res: {res_txt} | Thresh: {pipeline.sobel_threshold} | Edge: {pipeline.edge_mode_name()}"
+            title = f"DotShot - Mode: {mode} | Res: {res_txt} | Thresh: {pipeline.sobel_threshold} | Edge: {pipeline.edge_mode_name()} | Crop: {pipeline.crop_mode_name()}"
             try:
                 cv2.setWindowTitle("DotShot", title)
             except Exception:
@@ -84,8 +84,12 @@ def main() -> None:
             if key in (27, ord("q")):
                 break
 
-            if (key & 0xFF) == ord("c") and not use_file:
+            if (key & 0xFF) == ord(" ") and not use_file:
                 pipeline.capture()
+                continue
+
+            if (key & 0xFF) == ord("c"):
+                pipeline.cycle_crop_mode()
                 continue
 
             if (key & 0xFF) == ord("r"):

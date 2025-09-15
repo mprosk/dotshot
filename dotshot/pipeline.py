@@ -8,6 +8,7 @@ import numpy as np
 
 from dotshot.camera import USBCamera
 from dotshot.printer import Printer
+from dotshot.utils import CROP_MODES, crop_center_to_aspect, crop_mode_name
 
 # Display/processing config
 RESOLUTIONS = [
@@ -52,6 +53,7 @@ class ImagePipeline:
         self.quant_index: int = len(QUANT_LEVELS) - 1
         self.edge_mode: int = EDGE_NONE
         self.sobel_threshold: int = 24
+        self.crop_index: int = 0  # 0: 4:3, 1: 1:1
 
         # Image buffers
         self.raw: np.ndarray = np.zeros((1, 1), dtype=np.uint8)
@@ -64,7 +66,7 @@ class ImagePipeline:
         if self.cam is None:
             logging.debug("capture() called without a camera; ignoring")
             return
-        self.raw = self.cam.capture_frame()
+        self.raw = self.cam.capture_frame(6)
         self._rebuild_from_raw()
 
     def load_file(self, path: str) -> None:
@@ -83,6 +85,15 @@ class ImagePipeline:
         prev = self.res_index
         self.res_index = (self.res_index + 1) % len(RESOLUTIONS)
         logging.debug("Resolution index changed: %d -> %d", prev, self.res_index)
+        self._rebuild_from_raw()
+
+    def cycle_crop_mode(self) -> None:
+        """Cycle crop mode among predefined aspect ratios and rebuild images."""
+        prev = self.crop_index
+        self.crop_index = (self.crop_index + 1) % len(CROP_MODES)
+        logging.debug(
+            "Crop mode: %s -> %s", crop_mode_name(prev), crop_mode_name(self.crop_index)
+        )
         self._rebuild_from_raw()
 
     def adjust_offset(self, delta_levels: int) -> None:
@@ -183,6 +194,10 @@ class ImagePipeline:
             return "UNION"
         return "OFF"
 
+    def crop_mode_name(self) -> str:
+        """Return human-readable crop mode (e.g., 4:3, 1:1)."""
+        return crop_mode_name(self.crop_index)
+
     def adjust_sobel_threshold(self, delta: int) -> None:
         """Adjust Sobel binary threshold by delta (clamped 0..255)."""
         prev = self.sobel_threshold
@@ -236,7 +251,10 @@ class ImagePipeline:
         `orig` and bypass quantization and offset adjustments.
         """
         tgt_h, tgt_w = self._current_target()
-        self.orig = self._resize_fit(self.raw, tgt_h, tgt_w)
+        # Apply center-crop to selected aspect, then fit to target
+        aspect_w, aspect_h = CROP_MODES[self.crop_index]
+        cropped = crop_center_to_aspect(self.raw, aspect_w, aspect_h)
+        self.orig = self._resize_fit(cropped, tgt_h, tgt_w)
         if self.edge_mode == EDGE_NONE:
             self.quant = self._quantize_gray(self.orig)
             self.frame = self._shift_quant_levels(self.quant, self.level_offset)

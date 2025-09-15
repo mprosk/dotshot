@@ -21,8 +21,9 @@ from typing import Optional
 import cv2
 import numpy as np
 
-from dotshot.livecamera import LiveCamera
+from dotshot.camera import USBCamera
 from dotshot.printer import Printer
+from dotshot.utils import CROP_MODES, crop_center_to_aspect
 
 
 class FPSCounter:
@@ -69,14 +70,14 @@ class PhotoboothState(Enum):
 class DotShotLiveApp:
     """Main application class encapsulating the photobooth UI loop and actions."""
 
-    def __init__(self, *, cam: LiveCamera, printer: Printer) -> None:
+    def __init__(self, *, cam: USBCamera, printer: Printer) -> None:
         """Initialize the app with a camera and printer.
 
         Args:
             cam: OpenCV-backed camera wrapper.
             printer: Printer interface used for printing captured frames.
         """
-        self.cam: LiveCamera = cam
+        self.cam: USBCamera = cam
         self.printer: Printer = printer
         self.window_name: str = "DotShot"
         self.fps_counter: FPSCounter = FPSCounter(enabled=True, update_period_s=1.0)
@@ -90,6 +91,7 @@ class DotShotLiveApp:
         self.fullscreen: bool = False
         self.edge_enabled: bool = False
         self.sobel_threshold: int = 24
+        self.crop_index: int = 0  # 0: 4:3, 1:1
 
     def run(self) -> None:
         """Run the main event loop until the user quits."""
@@ -134,12 +136,17 @@ class DotShotLiveApp:
         """
         if self.state == PhotoboothState.LIVE:
             frame: np.ndarray = self.cam.capture_frame()
+            # Apply center crop to selected aspect before further processing
+            aspect_w, aspect_h = CROP_MODES[self.crop_index]
+            frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
             if self.edge_enabled:
                 frame = self._apply_edge_filter(frame)
             self.fps_counter.update()
             return frame
         if self.state == PhotoboothState.COUNTDOWN:
             frame = self.cam.capture_frame()
+            aspect_w, aspect_h = CROP_MODES[self.crop_index]
+            frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
             if self.edge_enabled:
                 frame = self._apply_edge_filter(frame)
             elapsed: float = time.perf_counter() - self.countdown_start
@@ -151,6 +158,8 @@ class DotShotLiveApp:
         if self.state == PhotoboothState.FLASH:
             if (time.perf_counter() - self.flash_start) >= self.flash_duration_s:
                 shot: np.ndarray = self.cam.capture_frame()
+                aspect_w, aspect_h = CROP_MODES[self.crop_index]
+                shot = crop_center_to_aspect(shot, aspect_w, aspect_h)
                 self.captured_frame_original = shot
                 rendered: np.ndarray = self._render_captured(shot)
                 self.captured_frame = rendered
@@ -200,6 +209,14 @@ class DotShotLiveApp:
                 )
             except Exception as e:
                 logging.error("Failed to set fullscreen mode: %s", e)
+            return True
+        if (key & 0xFF) == ord("c"):
+            self.crop_index = (self.crop_index + 1) % len(CROP_MODES)
+            logging.info(
+                "Crop mode -> %d:%d",
+                CROP_MODES[self.crop_index][0],
+                CROP_MODES[self.crop_index][1],
+            )
             return True
         if (key & 0xFF) == ord(" "):
             if self.state == PhotoboothState.LIVE:
@@ -382,7 +399,7 @@ def main() -> None:
         help="Camera device index or path (e.g., 0 or /dev/video0)",
     )
     args = parser.parse_args()
-    cam = LiveCamera(device=(args.camera if args.camera is not None else 0))
+    cam = USBCamera(device=(args.camera if args.camera is not None else 0))
     printer = Printer()
     app = DotShotLiveApp(cam=cam, printer=printer)
     app.run()
