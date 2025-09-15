@@ -108,43 +108,6 @@ class ImagePipeline:
         )
         self.frame = self._shift_quant_levels(self.quant, self.level_offset)
 
-    def set_offset(self, new_offset: int) -> None:
-        """Set absolute brightness offset in quantization steps and update the frame."""
-        prev = self.level_offset
-        self.level_offset = int(new_offset)
-        if self.level_offset != prev:
-            logging.debug("Offset set: %d -> %d", prev, self.level_offset)
-        self.frame = self._shift_quant_levels(self.quant, self.level_offset)
-
-    def set_resolution_index(self, index: int) -> None:
-        """Set target resolution by index and rebuild derived images."""
-        if not RESOLUTIONS:
-            return
-        clamped = max(0, min(int(index), len(RESOLUTIONS) - 1))
-        if clamped == self.res_index:
-            return
-        prev = self.res_index
-        self.res_index = clamped
-        logging.debug("Resolution index set: %d -> %d", prev, self.res_index)
-        self._rebuild_from_raw()
-
-    def set_quant_index(self, index: int) -> None:
-        """Set quantization level index and rebuild derived images."""
-        if not QUANT_LEVELS:
-            return
-        clamped = max(0, min(int(index), len(QUANT_LEVELS) - 1))
-        if clamped == self.quant_index:
-            return
-        prev = self.quant_index
-        self.quant_index = clamped
-        logging.debug(
-            "Quantization index set: %d -> %d (levels %d)",
-            prev,
-            self.quant_index,
-            QUANT_LEVELS[self.quant_index],
-        )
-        self._rebuild_from_raw()
-
     def adjust_quant(self, delta: int) -> None:
         """Adjust quantization level index by delta (wraps across available levels)."""
         if not QUANT_LEVELS:

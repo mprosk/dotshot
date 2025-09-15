@@ -21,7 +21,22 @@ def main() -> None:
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
 
-    parser = argparse.ArgumentParser(description="DotShot UI")
+    parser = argparse.ArgumentParser(
+        description="DotShot UI",
+        epilog=(
+            "Keys:\n"
+            "  Space: capture (camera mode)\n"
+            "  f: toggle fullscreen\n"
+            "  e: cycle edge mode\n"
+            "  r: cycle resolution\n"
+            "  c: cycle crop mode (4:3, 1:1)\n"
+            "  Up/Down: adjust Sobel threshold\n"
+            "  p: print current\n"
+            "  s: save print/raw images\n"
+            "  q/Esc: quit"
+        ),
+        formatter_class=argparse.RawTextHelpFormatter,
+    )
     parser.add_argument(
         "--file",
         dest="file",
@@ -70,7 +85,10 @@ def main() -> None:
             # Update window title with current status (Qt builds only; safe to ignore if unsupported)
             mode = "File" if use_file else "Camera"
             res_txt = f"{pipeline.orig.shape[1]}x{pipeline.orig.shape[0]}"
-            title = f"DotShot - Mode: {mode} | Res: {res_txt} | Thresh: {pipeline.sobel_threshold} | Edge: {pipeline.edge_mode_name()} | Crop: {pipeline.crop_mode_name()}"
+            title = (
+                f"DotShot - Mode: {mode} | Res: {res_txt} | Thresh: {pipeline.sobel_threshold} | "
+                f"Edge: {pipeline.edge_mode_name()} | Crop: {pipeline.crop_mode_name()}"
+            )
             try:
                 cv2.setWindowTitle("DotShot", title)
             except Exception:

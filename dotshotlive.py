@@ -179,8 +179,11 @@ class DotShotLiveApp:
             if self.state == PhotoboothState.LIVE
             else "N/A"
         )
+        crop_w, crop_h = CROP_MODES[self.crop_index]
+        edge_txt = "ON" if self.edge_enabled else "OFF"
         title = (
-            f"DotShot Live | {res_txt} | {fps_txt} fps | Thresh: {self.sobel_threshold}"
+            f"DotShot Live | {res_txt} | {fps_txt} fps | Thresh: {self.sobel_threshold} | "
+            f"Edge: {edge_txt} | Crop: {crop_w}:{crop_h}"
         )
         try:
             cv2.setWindowTitle(self.window_name, title)
