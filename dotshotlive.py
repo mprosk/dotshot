@@ -92,6 +92,7 @@ class DotShotLiveApp:
         self.edge_enabled: bool = False
         self.sobel_threshold: int = 24
         self.crop_index: int = 0  # 0: 4:3, 1:1
+        self.contrast: float = 1.0  # Contrast gain applied in non-edge mode
 
     def run(self) -> None:
         """Run the main event loop until the user quits."""
@@ -141,6 +142,8 @@ class DotShotLiveApp:
             frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
             if self.edge_enabled:
                 frame = self._apply_edge_filter(frame)
+            else:
+                frame = self._apply_contrast(frame, self.contrast)
             # Mirror live preview horizontally for on-screen display only
             frame = self._mirror_horizontal(frame)
             self.fps_counter.update()
@@ -151,6 +154,8 @@ class DotShotLiveApp:
             frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
             if self.edge_enabled:
                 frame = self._apply_edge_filter(frame)
+            else:
+                frame = self._apply_contrast(frame, self.contrast)
             # Mirror preview before drawing text so overlay remains readable
             frame = self._mirror_horizontal(frame)
             elapsed: float = time.perf_counter() - self.countdown_start
@@ -185,8 +190,13 @@ class DotShotLiveApp:
         )
         crop_w, crop_h = CROP_MODES[self.crop_index]
         edge_txt = "ON" if self.edge_enabled else "OFF"
+        metric_txt = (
+            f"Thresh: {self.sobel_threshold}"
+            if self.edge_enabled
+            else f"Contrast: {self.contrast:.2f}"
+        )
         title = (
-            f"DotShot Live | {res_txt} | {fps_txt} fps | Thresh: {self.sobel_threshold} | "
+            f"DotShot Live | {res_txt} | {fps_txt} fps | {metric_txt} | "
             f"Edge: {edge_txt} | Crop: {crop_w}:{crop_h}"
         )
         try:
@@ -239,14 +249,22 @@ class DotShotLiveApp:
                 "Edge detection %s", "ENABLED" if self.edge_enabled else "DISABLED"
             )
             return True
-        # Arrow keys for threshold adjustment (Up/Down)
+        # Arrow keys for adjustment (Up/Down): threshold in edge mode, contrast otherwise
         if key in {82, 2490368}:  # Up
-            self.sobel_threshold = min(255, self.sobel_threshold - 4)
-            logging.debug("Threshold -> %d", self.sobel_threshold)
+            if self.edge_enabled:
+                self.sobel_threshold = min(255, self.sobel_threshold - 2)
+                logging.debug("Threshold -> %d", self.sobel_threshold)
+            else:
+                self.contrast = min(3.0, self.contrast + 0.10)
+                logging.debug("Contrast -> %.2f", self.contrast)
             return True
         if key in {84, 2621440}:  # Down
-            self.sobel_threshold = max(0, self.sobel_threshold + 4)
-            logging.debug("Threshold -> %d", self.sobel_threshold)
+            if self.edge_enabled:
+                self.sobel_threshold = max(0, self.sobel_threshold + 2)
+                logging.debug("Threshold -> %d", self.sobel_threshold)
+            else:
+                self.contrast = max(0.20, self.contrast - 0.10)
+                logging.debug("Contrast -> %.2f", self.contrast)
             return True
         if self.state != PhotoboothState.CAPTURED:
             return True
@@ -378,11 +396,28 @@ class DotShotLiveApp:
         """
         if self.edge_enabled:
             return self._apply_edge_filter(original)
-        return original
+        return self._apply_contrast(original, self.contrast)
 
     def _mirror_horizontal(self, image: np.ndarray) -> np.ndarray:
         """Return a horizontally mirrored copy for on-screen preview."""
         return cv2.flip(image, 1)
+
+    def _apply_contrast(self, image: np.ndarray, contrast: float) -> np.ndarray:
+        """Apply simple contrast gain to a grayscale image for preview/print.
+
+        Args:
+            image: Grayscale uint8 image.
+            contrast: Gain factor; 1.0 leaves image unchanged.
+
+        Returns:
+            Grayscale uint8 image with contrast adjusted.
+        """
+        # Use OpenCV convertScaleAbs: new = saturate(|alpha*image + beta|)
+        # beta=0 keeps brightness; alpha controls contrast
+        adjusted = cv2.convertScaleAbs(image, alpha=float(contrast), beta=0.0)
+        if not adjusted.flags["C_CONTIGUOUS"]:
+            adjusted = np.ascontiguousarray(adjusted)
+        return adjusted
 
 
 def main() -> None:
