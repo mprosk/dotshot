@@ -141,6 +141,8 @@ class DotShotLiveApp:
             frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
             if self.edge_enabled:
                 frame = self._apply_edge_filter(frame)
+            # Mirror live preview horizontally for on-screen display only
+            frame = self._mirror_horizontal(frame)
             self.fps_counter.update()
             return frame
         if self.state == PhotoboothState.COUNTDOWN:
@@ -149,6 +151,8 @@ class DotShotLiveApp:
             frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
             if self.edge_enabled:
                 frame = self._apply_edge_filter(frame)
+            # Mirror preview before drawing text so overlay remains readable
+            frame = self._mirror_horizontal(frame)
             elapsed: float = time.perf_counter() - self.countdown_start
             remaining: int = self.countdown_total - int(elapsed)
             if remaining <= 0:
@@ -287,8 +291,9 @@ class DotShotLiveApp:
     def _save_captured(self) -> None:
         """Save the captured frame to the repository's images directory."""
         assert self.captured_frame is not None
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        images_dir = os.path.join(repo_root, "images")
+        # Save under the repository's dotshot/images directory
+        repo_dir = os.path.dirname(os.path.abspath(__file__))
+        images_dir = os.path.join(repo_dir, "images")
         os.makedirs(images_dir, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_path = os.path.join(images_dir, f"dotshot_{ts}.png")
@@ -375,6 +380,10 @@ class DotShotLiveApp:
             return self._apply_edge_filter(original)
         return original
 
+    def _mirror_horizontal(self, image: np.ndarray) -> np.ndarray:
+        """Return a horizontally mirrored copy for on-screen preview."""
+        return cv2.flip(image, 1)
+
 
 def main() -> None:
     """Entry point: parse args, build the app, and run it."""
@@ -386,12 +395,16 @@ def main() -> None:
         description="DotShot Live UI",
         formatter_class=argparse.RawTextHelpFormatter,
         epilog=(
-            "Controls:\n"
+            "Use Controls:\n"
             "  Space: Capture a frame or return to live view\n"
             "  p: Print captured frame\n"
             "  s: Save captured frame\n"
             "  f: Toggle fullscreen\n"
             "  q/Esc: Quit"
+            "Advanced Controls:\n"
+            "  e: Toggle edge detection\n"
+            "  c: Cycle crop mode (4:3, 1:1)\n"
+            "  Up/Down: Adjust Sobel threshold\n"
         ),
     )
     parser.add_argument(
