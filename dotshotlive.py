@@ -16,6 +16,7 @@ import tempfile
 import time
 from datetime import datetime
 from enum import Enum, auto
+from pathlib import Path
 from typing import Optional
 
 import cv2
@@ -324,12 +325,12 @@ class DotShotLiveApp:
         """Save the captured frame to the repository's images directory."""
         assert self.captured_frame is not None
         # Save under the repository's images directory at the repo root
-        repo_root = os.path.dirname(os.path.abspath(__file__))
-        images_dir = os.path.join(repo_root, "images")
-        os.makedirs(images_dir, exist_ok=True)
+        repo_root = Path(__file__).parent.resolve()
+        images_dir = repo_root / "images"
+        images_dir.mkdir(parents=True, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_path = os.path.join(images_dir, f"dotshot_{ts}.png")
-        cv2.imwrite(out_path, self.captured_frame)
+        out_path = images_dir / f"dotshot_{ts}.png"
+        cv2.imwrite(str(out_path), self.captured_frame)
         logging.info(f"Saved image to {out_path}")
 
     def _draw_center_text(
