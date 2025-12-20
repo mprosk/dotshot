@@ -70,14 +70,16 @@ class PhotoboothState(Enum):
 class DotShotLiveApp:
     """Main application class encapsulating the photobooth UI loop and actions."""
 
-    def __init__(self, *, cam: USBCamera, printer: Printer) -> None:
+    def __init__(
+        self, *, cam: Optional[USBCamera], printer: Printer, static_image: Optional[np.ndarray] = None
+    ) -> None:
         """Initialize the app with a camera and printer.
 
         Args:
             cam: OpenCV-backed camera wrapper.
             printer: Printer interface used for printing captured frames.
         """
-        self.cam: USBCamera = cam
+        self.cam: Optional[USBCamera] = cam
         self.printer: Printer = printer
         self.window_name: str = "DotShot"
         self.fps_counter: FPSCounter = FPSCounter(enabled=True, update_period_s=1.0)
@@ -93,13 +95,15 @@ class DotShotLiveApp:
         self.sobel_threshold: int = 24
         self.crop_index: int = 0  # 0: 4:3, 1:1
         self.contrast: float = 1.0  # Contrast gain applied in non-edge mode
+        self.static_image: Optional[np.ndarray] = static_image
 
     def run(self) -> None:
         """Run the main event loop until the user quits."""
         cv2.namedWindow(self.window_name, cv2.WINDOW_NORMAL)
         try:
-            self.cam.open()
-            current_frame: np.ndarray = self.cam.capture_frame()
+            if self.cam is not None:
+                self.cam.open()
+            current_frame: np.ndarray = self._get_source_frame()
             while True:
                 display_frame: np.ndarray = self._update_state_and_get_display(
                     current_frame
@@ -121,10 +125,11 @@ class DotShotLiveApp:
                 cv2.destroyAllWindows()
             except Exception:
                 pass
-            try:
-                self.cam.close()
-            except Exception as e:
-                logging.error("Error closing camera: %s", e)
+            if self.cam is not None:
+                try:
+                    self.cam.close()
+                except Exception as e:
+                    logging.error("Error closing camera: %s", e)
 
     def _update_state_and_get_display(self, last_frame: np.ndarray) -> np.ndarray:
         """Advance state as needed and return the frame to display.
@@ -136,7 +141,7 @@ class DotShotLiveApp:
             The image to present in the window for the current iteration.
         """
         if self.state == PhotoboothState.LIVE:
-            frame: np.ndarray = self.cam.capture_frame()
+            frame: np.ndarray = self._get_source_frame()
             # Apply center crop to selected aspect before further processing
             aspect_w, aspect_h = CROP_MODES[self.crop_index]
             frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
@@ -149,7 +154,7 @@ class DotShotLiveApp:
             self.fps_counter.update()
             return frame
         if self.state == PhotoboothState.COUNTDOWN:
-            frame = self.cam.capture_frame()
+            frame = self._get_source_frame()
             aspect_w, aspect_h = CROP_MODES[self.crop_index]
             frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
             if self.edge_enabled:
@@ -166,7 +171,7 @@ class DotShotLiveApp:
             return self._draw_center_text(frame, str(remaining))
         if self.state == PhotoboothState.FLASH:
             if (time.perf_counter() - self.flash_start) >= self.flash_duration_s:
-                shot: np.ndarray = self.cam.capture_frame()
+                shot: np.ndarray = self._get_source_frame()
                 aspect_w, aspect_h = CROP_MODES[self.crop_index]
                 shot = crop_center_to_aspect(shot, aspect_w, aspect_h)
                 self.captured_frame_original = shot
@@ -309,9 +314,9 @@ class DotShotLiveApp:
     def _save_captured(self) -> None:
         """Save the captured frame to the repository's images directory."""
         assert self.captured_frame is not None
-        # Save under the repository's dotshot/images directory
-        repo_dir = os.path.dirname(os.path.abspath(__file__))
-        images_dir = os.path.join(repo_dir, "images")
+        # Save under the repository's images directory at the repo root
+        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        images_dir = os.path.join(repo_root, "images")
         os.makedirs(images_dir, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         out_path = os.path.join(images_dir, f"dotshot_{ts}.png")
@@ -419,6 +424,13 @@ class DotShotLiveApp:
             adjusted = np.ascontiguousarray(adjusted)
         return adjusted
 
+    def _get_source_frame(self) -> np.ndarray:
+        """Return a source frame from camera or the static file image."""
+        if self.static_image is not None:
+            return self.static_image
+        assert self.cam is not None, "Camera not initialized and no static image provided"
+        return self.cam.capture_frame()
+
 
 def main() -> None:
     """Entry point: parse args, build the app, and run it."""
@@ -439,8 +451,15 @@ def main() -> None:
             "Advanced Controls:\n"
             "  e: Toggle edge detection\n"
             "  c: Cycle crop mode (4:3, 1:1)\n"
-            "  Up/Down: Adjust Sobel threshold\n"
+            "  Up/Down: Adjust Sobel threshold or contrast\n"
         ),
+    )
+    parser.add_argument(
+        "--file",
+        dest="file",
+        type=str,
+        default=None,
+        help="Run without camera: load this image file",
     )
     parser.add_argument(
         "--camera",
@@ -450,9 +469,21 @@ def main() -> None:
         help="Camera device index or path (e.g., 0 or /dev/video0)",
     )
     args = parser.parse_args()
-    cam = USBCamera(device=(args.camera if args.camera is not None else 0))
+    use_file = args.file is not None
+    static_img: Optional[np.ndarray] = None
+    cam: Optional[USBCamera]
+    if use_file:
+        img = cv2.imread(args.file, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise RuntimeError(f"Failed to read image from {args.file}")
+        if not img.flags["C_CONTIGUOUS"]:
+            img = np.ascontiguousarray(img)
+        static_img = img
+        cam = None
+    else:
+        cam = USBCamera(device=(args.camera if args.camera is not None else 0))
     printer = Printer()
-    app = DotShotLiveApp(cam=cam, printer=printer)
+    app = DotShotLiveApp(cam=cam, printer=printer, static_image=static_img)
     app.run()
 
 
