@@ -94,7 +94,7 @@ class DotShotLiveApp:
         self.edge_enabled: bool = False
         self.sobel_threshold: int = 24
         self.crop_index: int = 0  # 0: 4:3, 1:1
-        self.contrast: float = 1.0  # Contrast gain applied in non-edge mode
+        self.contrast: float = 1.3  # Contrast gain applied in non-edge mode
         self.static_image: Optional[np.ndarray] = static_image
         self.show_help: bool = False
 
