@@ -25,8 +25,10 @@ except Exception as exc:  # pragma: no cover - optional dependency
 import numpy as np
 
 # Camera config
-CAMERA_WIDTH = 1280
-CAMERA_HEIGHT = 960
+# CAMERA_WIDTH = 1280
+# CAMERA_HEIGHT = 960
+CAMERA_WIDTH = 640
+CAMERA_HEIGHT = 480
 CAMERA_FPS = 30
 
 

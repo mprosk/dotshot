@@ -24,7 +24,7 @@ import numpy as np
 
 from dotshot.camera import USBCamera
 from dotshot.printer import Printer
-from dotshot.utils import CROP_MODES, crop_center_to_aspect
+from dotshot.utils import CROP_MODES, crop_center_to_aspect, apply_ordered_dither
 
 
 class FPSCounter:
@@ -72,7 +72,11 @@ class DotShotLiveApp:
     """Main application class encapsulating the photobooth UI loop and actions."""
 
     def __init__(
-        self, *, cam: Optional[USBCamera], printer: Printer, static_image: Optional[np.ndarray] = None
+        self,
+        *,
+        cam: Optional[USBCamera],
+        printer: Printer,
+        static_image: Optional[np.ndarray] = None,
     ) -> None:
         """Initialize the app with a camera and printer.
 
@@ -94,6 +98,10 @@ class DotShotLiveApp:
         self.fullscreen: bool = False
         self.edge_enabled: bool = False
         self.sobel_threshold: int = 24
+        self.dither_enabled: bool = False
+        self.dither_strength: float = (
+            1.0  # Dithering strength multiplier (default: 1.0 for standard)
+        )
         self.crop_index: int = 0  # 0: 4:3, 1:1
         self.contrast: float = 1.3  # Contrast gain applied in non-edge mode
         self.static_image: Optional[np.ndarray] = static_image
@@ -149,7 +157,12 @@ class DotShotLiveApp:
             # Apply center crop to selected aspect before further processing
             aspect_w, aspect_h = CROP_MODES[self.crop_index]
             frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
-            if self.edge_enabled:
+            if self.dither_enabled:
+                contrasted = self._apply_contrast(frame, self.contrast)
+                frame = apply_ordered_dither(
+                    contrasted, levels=2, strength=self.dither_strength
+                )
+            elif self.edge_enabled:
                 frame = self._apply_edge_filter(frame)
             else:
                 frame = self._apply_contrast(frame, self.contrast)
@@ -163,7 +176,12 @@ class DotShotLiveApp:
             frame = self._get_source_frame()
             aspect_w, aspect_h = CROP_MODES[self.crop_index]
             frame = crop_center_to_aspect(frame, aspect_w, aspect_h)
-            if self.edge_enabled:
+            if self.dither_enabled:
+                contrasted = self._apply_contrast(frame, self.contrast)
+                frame = apply_ordered_dither(
+                    contrasted, levels=2, strength=self.dither_strength
+                )
+            elif self.edge_enabled:
                 frame = self._apply_edge_filter(frame)
             else:
                 frame = self._apply_contrast(frame, self.contrast)
@@ -203,14 +221,16 @@ class DotShotLiveApp:
         )
         crop_w, crop_h = CROP_MODES[self.crop_index]
         edge_txt = "ON" if self.edge_enabled else "OFF"
-        metric_txt = (
-            f"Thresh: {self.sobel_threshold}"
-            if self.edge_enabled
-            else f"Contrast: {self.contrast:.2f}"
-        )
+        dither_txt = "ON" if self.dither_enabled else "OFF"
+        if self.dither_enabled:
+            metric_txt = f"Strength: {self.dither_strength:.2f}"
+        elif self.edge_enabled:
+            metric_txt = f"Thresh: {self.sobel_threshold}"
+        else:
+            metric_txt = f"Contrast: {self.contrast:.2f}"
         title = (
             f"DotShot Live | {res_txt} | {fps_txt} fps | {metric_txt} | "
-            f"Edge: {edge_txt} | Crop: {crop_w}:{crop_h}"
+            f"Edge: {edge_txt} | Dither: {dither_txt} | Crop: {crop_w}:{crop_h}"
         )
         try:
             cv2.setWindowTitle(self.window_name, title)
@@ -258,19 +278,33 @@ class DotShotLiveApp:
             return True
         if (key & 0xFF) == ord("e"):
             self.edge_enabled = not self.edge_enabled
+            if self.edge_enabled:
+                self.dither_enabled = False  # Mutually exclusive
             logging.info(
                 "Edge detection %s", "ENABLED" if self.edge_enabled else "DISABLED"
+            )
+            return True
+        if (key & 0xFF) == ord("d"):
+            self.dither_enabled = not self.dither_enabled
+            if self.dither_enabled:
+                self.edge_enabled = False  # Mutually exclusive
+            logging.info(
+                "Dithering %s", "ENABLED" if self.dither_enabled else "DISABLED"
             )
             return True
         if (key & 0xFF) == ord("h"):
             self.show_help = not self.show_help
             logging.debug("Help overlay %s", "ON" if self.show_help else "OFF")
             return True
-        # Arrow keys for adjustment (Up/Down): threshold in edge mode, contrast otherwise
+        # Arrow keys for adjustment
+        # Up/Down: threshold in edge mode, strength in dither mode, contrast otherwise
         if key in {82, 2490368}:  # Up
             if self.edge_enabled:
                 self.sobel_threshold = min(255, self.sobel_threshold - 2)
                 logging.debug("Threshold -> %d", self.sobel_threshold)
+            elif self.dither_enabled:
+                self.dither_strength = min(2.0, self.dither_strength + 0.05)
+                logging.debug("Dither strength -> %.2f", self.dither_strength)
             else:
                 self.contrast = min(3.0, self.contrast + 0.10)
                 logging.debug("Contrast -> %.2f", self.contrast)
@@ -279,6 +313,9 @@ class DotShotLiveApp:
             if self.edge_enabled:
                 self.sobel_threshold = max(0, self.sobel_threshold + 2)
                 logging.debug("Threshold -> %d", self.sobel_threshold)
+            elif self.dither_enabled:
+                self.dither_strength = max(0.1, self.dither_strength - 0.05)
+                logging.debug("Dither strength -> %.2f", self.dither_strength)
             else:
                 self.contrast = max(0.20, self.contrast - 0.10)
                 logging.debug("Contrast -> %.2f", self.contrast)
@@ -408,15 +445,21 @@ class DotShotLiveApp:
         return inv
 
     def _render_captured(self, original: np.ndarray) -> np.ndarray:
-        """Render the captured preview based on current edge settings.
+        """Render the captured preview based on current processing settings.
 
         Args:
             original: The unmodified frame captured from the camera.
 
         Returns:
             The image to display for the captured state, re-rendered using the
-            current edge detection settings and threshold.
+            current processing mode (dithering, edge detection, or contrast).
         """
+        if self.dither_enabled:
+            # Apply contrast first, then dithering (fixed at 2 levels for black/white)
+            contrasted = self._apply_contrast(original, self.contrast)
+            return apply_ordered_dither(
+                contrasted, levels=2, strength=self.dither_strength
+            )
         if self.edge_enabled:
             return self._apply_edge_filter(original)
         return self._apply_contrast(original, self.contrast)
@@ -446,7 +489,9 @@ class DotShotLiveApp:
         """Return a source frame from camera or the static file image."""
         if self.static_image is not None:
             return self.static_image
-        assert self.cam is not None, "Camera not initialized and no static image provided"
+        assert (
+            self.cam is not None
+        ), "Camera not initialized and no static image provided"
         return self.cam.capture_frame()
 
     def _draw_help_overlay(self, image: np.ndarray) -> np.ndarray:
@@ -479,8 +524,9 @@ class DotShotLiveApp:
             "Advanced Controls:",
             "  h: Toggle this help",
             "  e: Toggle edge detection",
+            "  d: Toggle dithering",
             "  c: Cycle crop mode (4:3, 1:1)",
-            "  Up/Down: Adjust threshold/contrast",
+            "  Up/Down: Adjust threshold/strength/contrast",
         ]
 
         # Calculate total height needed
@@ -507,7 +553,9 @@ class DotShotLiveApp:
             if line:  # Skip empty lines
                 # Use slightly larger scale for header
                 line_scale = scale * 1.2 if line == "KEYBOARD COMMANDS" else scale
-                line_thickness = thickness + 1 if line == "KEYBOARD COMMANDS" else thickness
+                line_thickness = (
+                    thickness + 1 if line == "KEYBOARD COMMANDS" else thickness
+                )
                 cv2.putText(
                     output,
                     line,
@@ -538,11 +586,12 @@ def main() -> None:
             "  p: Print captured frame\n"
             "  s: Save captured frame\n"
             "  f: Toggle fullscreen\n"
-            "  q/Esc: Quit"
+            "  q/Esc: Quit\n"
             "Advanced Controls:\n"
             "  e: Toggle edge detection\n"
+            "  d: Toggle dithering\n"
             "  c: Cycle crop mode (4:3, 1:1)\n"
-            "  Up/Down: Adjust Sobel threshold or contrast\n"
+            "  Up/Down: Adjust threshold/strength/contrast\n"
         ),
     )
     parser.add_argument(
