@@ -98,6 +98,8 @@ class DotShotLiveApp:
         self.contrast: float = 1.3  # Contrast gain applied in non-edge mode
         self.static_image: Optional[np.ndarray] = static_image
         self.show_help: bool = False
+        self.print_debounce_s: float = 3.0
+        self.last_print_time: float = -self.print_debounce_s
 
     def run(self) -> None:
         """Run the main event loop until the user quits."""
@@ -284,7 +286,12 @@ class DotShotLiveApp:
         if self.state != PhotoboothState.CAPTURED:
             return True
         if (key & 0xFF) == ord("p") and self.captured_frame is not None:
-            self._print_captured()
+            now: float = time.perf_counter()
+            if (now - self.last_print_time) >= self.print_debounce_s:
+                self._print_captured()
+            else:
+                remaining: float = self.print_debounce_s - (now - self.last_print_time)
+                logging.debug(f"Print debounce: {remaining:.1f}s remaining")
             return True
         if (key & 0xFF) == ord("s") and self.captured_frame is not None:
             self._save_captured()
@@ -314,6 +321,7 @@ class DotShotLiveApp:
                 cv2.imwrite(tmp_path, self.captured_frame)
             logging.info(f"Printing {self.captured_frame.shape} frame from {tmp_path}")
             self.printer.print_image_file(tmp_path)
+            self.last_print_time = time.perf_counter()
         finally:
             if tmp_path is not None:
                 try:
