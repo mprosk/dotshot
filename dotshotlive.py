@@ -77,12 +77,15 @@ class DotShotLiveApp:
         cam: Optional[USBCamera],
         printer: Printer,
         static_image: Optional[np.ndarray] = None,
+        text_file: Optional[Path] = None,
     ) -> None:
         """Initialize the app with a camera and printer.
 
         Args:
             cam: OpenCV-backed camera wrapper.
             printer: Printer interface used for printing captured frames.
+            static_image: Optional static image to use instead of camera.
+            text_file: Optional path to text file to print before images.
         """
         self.cam: Optional[USBCamera] = cam
         self.printer: Printer = printer
@@ -102,9 +105,11 @@ class DotShotLiveApp:
         self.dither_strength: float = (
             1.0  # Dithering strength multiplier (default: 1.0 for standard)
         )
-        self.crop_index: int = 0  # 0: 4:3, 1:1
+        # Default to 1:1 crop if text file is provided, otherwise 4:3
+        self.crop_index: int = 1 if text_file is not None else 0  # 0: 4:3, 1:1
         self.contrast: float = 1.3  # Contrast gain applied in non-edge mode
         self.static_image: Optional[np.ndarray] = static_image
+        self.text_file: Optional[Path] = text_file
         self.show_help: bool = False
         self.print_debounce_s: float = 3.0
         self.last_print_time: float = -self.print_debounce_s
@@ -348,8 +353,22 @@ class DotShotLiveApp:
         self.flash_start = time.perf_counter()
 
     def _print_captured(self) -> None:
-        """Print the captured frame via the configured printer."""
+        """Print the captured frame via the configured printer.
+        
+        If a text file is configured, prints it first, then the image.
+        """
         assert self.captured_frame is not None
+
+        # Print text file first if specified
+        if self.text_file is not None:
+            if not self.text_file.exists():
+                logging.error(f"Text file not found: {self.text_file}")
+            else:
+                logging.info(f"Printing text file: {self.text_file}")
+                try:
+                    self.printer.print_text_file(str(self.text_file))
+                except Exception as e:
+                    logging.error(f"Failed to print text file: {e}")
 
         tmp_path: Optional[str] = None
         try:
@@ -608,6 +627,13 @@ def main() -> None:
         default=None,
         help="Camera device index or path (e.g., 0 or /dev/video0)",
     )
+    parser.add_argument(
+        "--text",
+        dest="text",
+        type=str,
+        default=None,
+        help="Path to text file to print before images (defaults to 1:1 crop mode)",
+    )
     args = parser.parse_args()
     use_file = args.file is not None
     static_img: Optional[np.ndarray] = None
@@ -622,8 +648,15 @@ def main() -> None:
         cam = None
     else:
         cam = USBCamera(device=(args.camera if args.camera is not None else 0))
+    
+    text_file: Optional[Path] = None
+    if args.text is not None:
+        text_file = Path(args.text)
+        if not text_file.exists():
+            raise RuntimeError(f"Text file not found: {text_file}")
+    
     printer = Printer()
-    app = DotShotLiveApp(cam=cam, printer=printer, static_image=static_img)
+    app = DotShotLiveApp(cam=cam, printer=printer, static_image=static_img, text_file=text_file)
     app.run()
 
 
