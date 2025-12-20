@@ -324,7 +324,7 @@ class DotShotLiveApp:
         """Save the captured frame to the repository's images directory."""
         assert self.captured_frame is not None
         # Save under the repository's images directory at the repo root
-        repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        repo_root = os.path.dirname(os.path.abspath(__file__))
         images_dir = os.path.join(repo_root, "images")
         os.makedirs(images_dir, exist_ok=True)
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
