@@ -71,22 +71,20 @@ def apply_ordered_dither(
     Uses a 4x4 Bayer matrix tiled across the image.
 
     Args:
-        image: Grayscale uint8 image (2D array: H, W).
+        image: Grayscale uint8 image (2D array: H, W) or color image (H, W, C).
         levels: Number of quantization levels (e.g., 2 for black/white, 4, 8, etc.).
         strength: Dithering strength multiplier (1.0 = standard, higher = more dithering).
 
     Returns:
         Grayscale uint8 image with ordered dithering applied (2D array: H, W).
     """
-    # Ensure grayscale (2D) - convert if needed
+    # Convert to grayscale if needed
     if image.ndim == 3:
-        # If color image, convert to grayscale
         if image.shape[2] == 3:
             img_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
         elif image.shape[2] == 4:
             img_gray = cv2.cvtColor(image, cv2.COLOR_BGRA2GRAY)
         else:
-            # Take first channel if multi-channel
             img_gray = image[:, :, 0]
     elif image.ndim == 2:
         img_gray = image
@@ -95,77 +93,54 @@ def apply_ordered_dither(
             f"Unsupported image dimensions: {image.ndim}D (expected 2D grayscale)"
         )
 
-    # Ensure uint8 and contiguous
-    if img_gray.dtype != np.uint8:
-        img_u8 = img_gray.astype(np.uint8)
+    # Convert to float32 for calculations (avoid unnecessary copy if already uint8)
+    if img_gray.dtype == np.uint8:
+        img_float = img_gray.astype(np.float32, copy=False)
     else:
-        img_u8 = img_gray.copy()
-    if not img_u8.flags["C_CONTIGUOUS"]:
-        img_u8 = np.ascontiguousarray(img_u8)
+        img_float = img_gray.astype(np.uint8).astype(np.float32)
 
-    # Convert to float32 for calculations
-    img_float = img_u8.astype(np.float32)
+    # Validate and clamp levels
+    levels = max(2, min(256, int(levels)))
+    palette_step = 255.0 / (levels - 1)
 
-    # Create quantization palette
-    if levels <= 1:
-        levels = 2
-    if levels > 256:
-        levels = 256
-
-    palette_step = 255.0 / (levels - 1) if levels > 1 else 255.0
-    palette = np.array([i * palette_step for i in range(levels)], dtype=np.float32)
-
-    # 4x4 Bayer matrix (standard ordered dithering matrix)
-    bayer_4x4 = np.array(
-        [
-            [0, 8, 2, 10],
-            [12, 4, 14, 6],
-            [3, 11, 1, 9],
-            [15, 7, 13, 5],
-        ],
-        dtype=np.float32,
+    # 4x4 Bayer matrix (standard ordered dithering matrix), normalized to 0-1
+    bayer_4x4 = (
+        np.array(
+            [
+                [0, 8, 2, 10],
+                [12, 4, 14, 6],
+                [3, 11, 1, 9],
+                [15, 7, 13, 5],
+            ],
+            dtype=np.float32,
+        )
+        / 16.0
     )
-    # Normalize to 0-1 range
-    bayer_4x4 = bayer_4x4 / 16.0
 
     height, width = img_float.shape
-    bayer_h, bayer_w = bayer_4x4.shape
 
-    # Tile the Bayer matrix across the image
-    # Create indices for tiling using modulo
-    y_indices = np.arange(height) % bayer_h
-    x_indices = np.arange(width) % bayer_w
-    # Use advanced indexing to create tiled threshold matrix
-    threshold_matrix = bayer_4x4[np.ix_(y_indices, x_indices)]
+    # Tile Bayer matrix efficiently using np.tile
+    reps_h = (height + 3) // 4
+    reps_w = (width + 3) // 4
+    threshold_matrix = np.tile(bayer_4x4, (reps_h, reps_w))[:height, :width]
 
     # Scale threshold matrix by quantization step size and strength
-    # This determines how much the threshold affects quantization
-    quantization_step = palette_step
-    threshold_matrix = (threshold_matrix - 0.5) * quantization_step * strength
+    threshold_matrix = (threshold_matrix - 0.5) * palette_step * strength
 
-    # Add threshold to image values, then quantize
+    # Add threshold to image values
     dithered = img_float + threshold_matrix
 
-    # Quantize: find nearest palette value for each pixel
-    # Vectorized quantization using broadcasting
-    dithered_flat = dithered.flatten()
-    palette_2d = palette.reshape(-1, 1)  # Shape: (levels, 1)
-    dithered_2d = dithered_flat.reshape(1, -1)  # Shape: (1, pixels)
+    # Quantize directly: calculate index and map to palette value
+    # This is O(pixels) instead of O(levels * pixels)
+    quantized_indices = np.round(
+        np.clip(dithered / palette_step, 0, levels - 1)
+    ).astype(np.int32)
+    result = quantized_indices.astype(np.float32) * palette_step
 
-    # Compute distances: (levels, pixels)
-    distances = np.abs(palette_2d - dithered_2d)
-    # Find index of minimum distance for each pixel
-    quantized_indices = np.argmin(distances, axis=0)
-    # Map to quantized values
-    quantized_flat = palette[quantized_indices]
+    # Convert to uint8 (already clipped by the index calculation)
+    result = result.astype(np.uint8)
 
-    # Reshape back to original image dimensions
-    result = quantized_flat.reshape(height, width)
-
-    # Clip to valid range and convert to uint8
-    result = np.clip(result, 0.0, 255.0).astype(np.uint8)
-
-    # Ensure contiguous
+    # Ensure contiguous output
     if not result.flags["C_CONTIGUOUS"]:
         result = np.ascontiguousarray(result)
 
