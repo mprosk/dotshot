@@ -96,6 +96,7 @@ class DotShotLiveApp:
         self.crop_index: int = 0  # 0: 4:3, 1:1
         self.contrast: float = 1.0  # Contrast gain applied in non-edge mode
         self.static_image: Optional[np.ndarray] = static_image
+        self.show_help: bool = False
 
     def run(self) -> None:
         """Run the main event loop until the user quits."""
@@ -152,6 +153,8 @@ class DotShotLiveApp:
             # Mirror live preview horizontally for on-screen display only
             frame = self._mirror_horizontal(frame)
             self.fps_counter.update()
+            if self.show_help:
+                frame = self._draw_help_overlay(frame)
             return frame
         if self.state == PhotoboothState.COUNTDOWN:
             frame = self._get_source_frame()
@@ -183,6 +186,8 @@ class DotShotLiveApp:
         assert self.captured_frame_original is not None
         rendered: np.ndarray = self._render_captured(self.captured_frame_original)
         self.captured_frame = rendered
+        if self.show_help:
+            rendered = self._draw_help_overlay(rendered)
         return rendered
 
     def _update_window_title(self, display_frame: np.ndarray) -> None:
@@ -253,6 +258,10 @@ class DotShotLiveApp:
             logging.info(
                 "Edge detection %s", "ENABLED" if self.edge_enabled else "DISABLED"
             )
+            return True
+        if (key & 0xFF) == ord("h"):
+            self.show_help = not self.show_help
+            logging.debug("Help overlay %s", "ON" if self.show_help else "OFF")
             return True
         # Arrow keys for adjustment (Up/Down): threshold in edge mode, contrast otherwise
         if key in {82, 2490368}:  # Up
@@ -430,6 +439,79 @@ class DotShotLiveApp:
             return self.static_image
         assert self.cam is not None, "Camera not initialized and no static image provided"
         return self.cam.capture_frame()
+
+    def _draw_help_overlay(self, image: np.ndarray) -> np.ndarray:
+        """Draw a help overlay showing all available keyboard commands.
+
+        Args:
+            image: Grayscale or color image to draw on.
+
+        Returns:
+            A new image containing the help overlay.
+        """
+        output: np.ndarray = image.copy()
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        scale = 0.6
+        thickness = 1
+        line_height = 25
+        spacing = 5
+
+        # Help text lines
+        help_lines = [
+            "KEYBOARD COMMANDS",
+            "",
+            "Basic Controls:",
+            "  Space: Capture / Return to live view",
+            "  p: Print captured frame",
+            "  s: Save captured frame",
+            "  f: Toggle fullscreen",
+            "  q/Esc: Quit",
+            "",
+            "Advanced Controls:",
+            "  h: Toggle this help",
+            "  e: Toggle edge detection",
+            "  c: Cycle crop mode (4:3, 1:1)",
+            "  Up/Down: Adjust threshold/contrast",
+        ]
+
+        # Calculate total height needed
+        total_height = len(help_lines) * (line_height + spacing)
+        start_y = max(20, (output.shape[0] - total_height) // 2)
+
+        # Draw semi-transparent background
+        overlay = output.copy()
+        bg_y1 = max(0, start_y - 10)
+        bg_y2 = min(output.shape[0], start_y + total_height + 10)
+        bg_color = 0 if self.edge_enabled else 128
+        if output.ndim == 2:
+            overlay[bg_y1:bg_y2, :] = bg_color
+        else:
+            overlay[bg_y1:bg_y2, :] = (bg_color, bg_color, bg_color)
+        cv2.addWeighted(overlay, 0.7, output, 0.3, 0, output)
+
+        # Draw text
+        y = start_y
+        text_color = 255 if self.edge_enabled else 0
+        color = text_color if output.ndim == 2 else (text_color, text_color, text_color)
+
+        for line in help_lines:
+            if line:  # Skip empty lines
+                # Use slightly larger scale for header
+                line_scale = scale * 1.2 if line == "KEYBOARD COMMANDS" else scale
+                line_thickness = thickness + 1 if line == "KEYBOARD COMMANDS" else thickness
+                cv2.putText(
+                    output,
+                    line,
+                    (20, y),
+                    font,
+                    line_scale,
+                    color,
+                    line_thickness,
+                    cv2.LINE_AA,
+                )
+            y += line_height + spacing
+
+        return output
 
 
 def main() -> None:
