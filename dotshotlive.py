@@ -197,7 +197,8 @@ class DotShotLiveApp:
             if remaining <= 0:
                 self._start_flash()
                 return np.full_like(frame, 255)
-            return self._draw_center_text(frame, str(remaining))
+            # Hot pink color (BGR format: 0xFF00FF = (255, 0, 255))
+            return self._draw_center_text(frame, str(remaining), color=(255, 0, 255))
         if self.state == PhotoboothState.FLASH:
             if (time.perf_counter() - self.flash_start) >= self.flash_duration_s:
                 shot: np.ndarray = self._get_source_frame()
@@ -367,6 +368,7 @@ class DotShotLiveApp:
                 logging.info(f"Printing text file: {self.text_file}")
                 try:
                     self.printer.print_text_file(str(self.text_file))
+                    time.sleep(2.5)
                 except Exception as e:
                     logging.error(f"Failed to print text file: {e}")
 
@@ -404,26 +406,39 @@ class DotShotLiveApp:
         *,
         scale: float = 5.0,
         thickness: int = 6,
+        color: Optional[tuple[int, int, int]] = None,
     ) -> np.ndarray:
-        """Return a copy of image with centered white text overlay.
+        """Return a copy of image with centered text overlay.
 
         Args:
             image: Grayscale or color image to draw on.
             text: Text to render at the center.
             scale: Font scale passed to OpenCV.
             thickness: Line thickness for the text strokes.
+            color: Optional BGR color tuple. If None, uses default based on edge mode.
 
         Returns:
             A new image containing the centered text overlay.
         """
         output: np.ndarray = image.copy()
+        # Convert grayscale to BGR if color is specified
+        if color is not None and output.ndim == 2:
+            output = cv2.cvtColor(output, cv2.COLOR_GRAY2BGR)
+        
         font = cv2.FONT_HERSHEY_SIMPLEX
         (text_w, text_h), baseline = cv2.getTextSize(text, font, scale, thickness)
         x = max(0, (output.shape[1] - text_w) // 2)
         y = max(text_h + baseline, (output.shape[0] + text_h) // 2)
-        value = 0 if self.edge_enabled else 255
-        color = value if output.ndim == 2 else (value, value, value)
-        cv2.putText(output, text, (x, y), font, scale, color, thickness, cv2.LINE_AA)
+        
+        if color is None:
+            # Default behavior: use edge mode to determine color
+            value = 0 if self.edge_enabled else 255
+            text_color = value if output.ndim == 2 else (value, value, value)
+        else:
+            # Use provided color (BGR format)
+            text_color = color
+        
+        cv2.putText(output, text, (x, y), font, scale, text_color, thickness, cv2.LINE_AA)
         return output
 
     def _apply_edge_filter(self, image: np.ndarray) -> np.ndarray:
