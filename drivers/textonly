@@ -108,6 +108,9 @@ else
   echo "PAGE: $pc" >&2
 fi
 
+# ESC @ resets the printer so state left by a previous or cancelled job is cleared
+echo -ne '\033@'
+
 while [ "$COPIES" -gt 0 ]; do
   # Just translate LF->CRLF at the moment, until the PPD has options added.
   sed -e 's/$/'`echo -ne '\r'`'/g' "$TMPFILE2"

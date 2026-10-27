@@ -18,6 +18,10 @@ import subprocess
 import tempfile
 from typing import Optional
 
+# CUPS auto-typing treats files starting with ESC E / ESC @ as raw printer data,
+# which skips the textonly filter. Force text/plain so the filter always runs.
+TEXT_FORMAT_OPTIONS = ["-o", "document-format=text/plain"]
+
 
 class Printer:
     """
@@ -64,7 +68,9 @@ class Printer:
         tmp_path: Optional[str] = None
         try:
             tmp_path = self._write_temp_text_file(text)
-            job_id = self._lp_submit(self.text_queue_name, [tmp_path])
+            job_id = self._lp_submit(
+                self.text_queue_name, [tmp_path], TEXT_FORMAT_OPTIONS
+            )
             logging.info(
                 "Submitted text print job %d to queue %s", job_id, self.text_queue_name
             )
@@ -123,7 +129,9 @@ class Printer:
         if not os.path.isfile(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
 
-        job_id = self._lp_submit(self.text_queue_name, [file_path])
+        job_id = self._lp_submit(
+            self.text_queue_name, [file_path], TEXT_FORMAT_OPTIONS
+        )
         logging.info(
             "Submitted text-file print job %d to queue %s", job_id, self.text_queue_name
         )
